@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SOTA Watch Configuration Schema",
+  "description": "Schema for .sota-watch.json files in consuming projects. Defines which global SOTA topics a project wants to track, with priority and keywords.",
+  "type": "object",
+  "required": ["project", "topics"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Project name. Used for discovery filtering and audit logs.",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "version": {
+      "type": "string",
+      "description": "Config version (semver). Defaults to '1.0' if omitted.",
+      "default": "1.0",
+      "pattern": "^\\d+\\.\\d+(\\.\\d+)?$"
+    },
+    "topics": {
+      "type": "array",
+      "description": "Array of SOTA topics this project wants to track.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "category"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Topic ID from watchlists/global.json. Example: 'mcp-servers-claude-code-2026'.",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "category": {
+            "type": "string",
+            "description": "SOTA category for rubric weighting. Must match one of 9 canonical categories.",
+            "enum": [
+              "mcp-server",
+              "agent-framework",
+              "agent-orchestration-pattern",
+              "research-agent",
+              "skill-pack",
+              "hook-toolkit",
+              "awesome-list",
+              "code-library",
+              "research-with-code"
+            ]
+          },
+          "keywords": {
+            "type": "array",
+            "description": "Optional project-specific keywords to override global.json keywords. Used in discovery queries.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": []
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Priority level (1=low, 5=high). Controls re-eval frequency. Higher = more frequently scanned.",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 3
+          },
+          "notes": {
+            "type": "string",
+            "description": "Project-specific context for this topic (e.g., 'critical for Q2 roadmap', 'research spike').",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "description": "Optional discovery tuning parameters.",
+      "additionalProperties": false,
+      "properties": {
+        "trigger_on_session_start": {
+          "type": "boolean",
+          "description": "If true, run session-start delta-check against watched topics. Defaults to true.",
+          "default": true
+        },
+        "max_candidates_per_topic": {
+          "type": "integer",
+          "description": "Hard cap on candidates returned per topic in discovery scans. Defaults to 20.",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "score_threshold_study": {
+          "type": "integer",
+          "description": "Minimum score for STUDY recommendation (default 70). Overrides rubric default.",
+          "minimum": 40,
+          "maximum": 100,
+          "default": 70
+        },
+        "score_threshold_install": {
+          "type": "integer",
+          "description": "Minimum score for INSTALL recommendation (default 80). Overrides rubric default.",
+          "minimum": 70,
+          "maximum": 100,
+          "default": 80
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "project": "example-project",
+      "version": "1.0",
+      "topics": [
+        {
+          "id": "mcp-servers-claude-code-2026",
+          "category": "mcp-server",
+          "priority": 5,
+          "notes": "Critical: MCP gap analysis for ecosystem."
+        },
+        {
+          "id": "code-intelligence-mcp-2026",
+          "category": "mcp-server",
+          "priority": 4,
+          "notes": "Covers deepwiki, repomix-mcp, octocode for repo analysis."
+        },
+        {
+          "id": "agent-orchestration-plan-by-files",
+          "category": "agent-orchestration-pattern",
+          "keywords": ["plan-by-files", "multi-agent", "worktree", "isolation"],
+          "priority": 4,
+          "notes": "Plan-by-files pattern for multi-agent coordination."
+        }
+      ],
+      "discovery": {
+        "trigger_on_session_start": true,
+        "max_candidates_per_topic": 15,
+        "score_threshold_study": 70,
+        "score_threshold_install": 85
+      }
+    }
+  ]
+}

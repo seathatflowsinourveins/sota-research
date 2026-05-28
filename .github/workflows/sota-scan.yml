@@ -1,0 +1,87 @@
+name: SOTA Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Discovery topic (e.g., "mcp servers", "agent orchestration")'
+        required: true
+        type: string
+      category:
+        description: 'Category filter'
+        required: true
+        type: choice
+        options:
+          - mcp-server
+          - agent-framework
+          - agent-orchestration-pattern
+          - research-agent
+          - skill-pack
+          - hook-toolkit
+          - awesome-list
+          - code-library
+          - research-with-code
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scan:
+    name: Scan SOTA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run bootstrap scan
+        run: |
+          node scripts/bootstrap.mjs \
+            --topic "${{ inputs.topic }}" \
+            --category "${{ inputs.category }}"
+      - name: NOVEL 2 — Validate PR changes against allowlist
+        run: |
+          # Verify only inventory/** and patterns/** files are modified
+          # REJECT: .github/**, package*.json, scripts/**, docs/**
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "✓ No files changed, allowlist check passes"
+            exit 0
+          fi
+
+          INVALID_CHANGES=0
+          while IFS= read -r file; do
+            if [[ "$file" =~ ^\.github/ ]] || [[ "$file" =~ ^package.*\.json$ ]] || [[ "$file" =~ ^scripts/ ]] || [[ "$file" =~ ^docs/ ]]; then
+              echo "✗ DENIED: $file (not in allowlist)"
+              ((INVALID_CHANGES++))
+            elif [[ "$file" =~ ^inventory/ ]] || [[ "$file" =~ ^patterns/ ]]; then
+              echo "✓ ALLOWED: $file"
+            else
+              echo "⚠ UNKNOWN: $file (not in allowlist, but not explicitly denied)"
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [ $INVALID_CHANGES -gt 0 ]; then
+            echo ""
+            echo "✗ FAILED: $INVALID_CHANGES file(s) not in allowlist. PR can only modify inventory/** and patterns/**"
+            exit 1
+          fi
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore(sota): scan results for ${{ inputs.topic }}'
+          title: 'SOTA scan: ${{ inputs.topic }} - ${{ inputs.category }}'
+          body: |
+            Automated SOTA discovery scan.
+
+            **Topic:** ${{ inputs.topic }}
+            **Category:** ${{ inputs.category }}
+
+            See `inventory/scan-*.md` for full results.
+
+            ⚠️ REVIEW BEFORE MERGE — This PR contains discovery output that must be manually validated before merging patterns/inventory changes.
+          branch: 'sota-scan/${{ inputs.category }}-${{ github.run_number }}'

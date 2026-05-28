@@ -1,0 +1,30 @@
+{
+  "name": "sota-research",
+  "version": "0.1.0",
+  "description": "SOTA discovery, scoring, and ingestion methodology + artifact repo for Claude Code runtime",
+  "type": "module",
+  "main": "scripts/discover.mjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --apply .",
+    "format": "biome format --write .",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "discover": "node scripts/discover.mjs",
+    "score": "node scripts/score.mjs",
+    "ingest": "node scripts/ingest.mjs",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "outcome": "node scripts/outcome.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "repomix": "^0.3.0"
+  }
+}

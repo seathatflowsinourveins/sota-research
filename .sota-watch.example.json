@@ -1,0 +1,39 @@
+{
+  "project": "sota-research",
+  "version": "1.0",
+  "topics": [
+    {
+      "id": "code-intelligence-mcp-2026",
+      "category": "mcp-server",
+      "priority": 4,
+      "notes": "Repomix, deepwiki, gitnexus alternatives and complements. Critical for L1-L3 ingestion in sota-research."
+    },
+    {
+      "id": "mcp-servers-claude-code-2026",
+      "category": "mcp-server",
+      "priority": 5,
+      "notes": "What's missing from ~/.claude/mcp/ runtime? Informs bootstrap MCP install queue."
+    },
+    {
+      "id": "agent-orchestration-plan-by-files",
+      "category": "agent-orchestration-pattern",
+      "keywords": [
+        "plan-by-files",
+        "agent",
+        "coordination",
+        "multi-agent",
+        "handoff",
+        "worktree",
+        "isolation"
+      ],
+      "priority": 4,
+      "notes": "Plan-by-files orchestration pattern. User-emphasized (CLAUDE.md). Candidates: ComposioHQ/agent-orchestrator, openai/swarm, custom implementations."
+    }
+  ],
+  "discovery": {
+    "trigger_on_session_start": true,
+    "max_candidates_per_topic": 15,
+    "score_threshold_study": 70,
+    "score_threshold_install": 85
+  }
+}

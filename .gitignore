@@ -1,0 +1,19 @@
+node_modules/
+coverage/
+*.log
+*.db
+*.sqlite
+.env
+.env.local
+.env.*.local
+.DS_Store
+dist/
+reference/
+patterns/*/repomix.md
+# Vendored research corpus — cloned third-party repos (bloat + licensing + test-fixture secrets). Never commit.
+docs/researches that need to research more/
+# Internal tooling dumps — never publish (Codex caches, raw results, investigation notes)
+inventory/codex-cache/
+inventory/codex-results*.json
+inventory/codex-consensus*.json
+inventory/ruflo-investigation*.md

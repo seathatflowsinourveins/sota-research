@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "description": "Cross-project SOTA discovery topics. Consumed by discovery.mjs phase-1 fan-out.",
+  "topics": [
+    {
+      "id": "mcp-servers-claude-code-2026",
+      "category": "mcp-server",
+      "keywords": ["mcp", "claude-code", "stdio", "transport", "server"],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "What MCPs are missing from ~/.claude/mcp/ runtime? Covers all 9 categories of MCP utility."
+    },
+    {
+      "id": "agent-orchestration-plan-by-files",
+      "category": "agent-orchestration-pattern",
+      "keywords": [
+        "agent",
+        "orchestration",
+        "plan",
+        "files",
+        "coordination",
+        "multi-agent",
+        "handoff"
+      ],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Plan-by-files pattern: agents write plans into separate files for coordination. Also: ReAct, handoffs, swarm."
+    },
+    {
+      "id": "autonomous-research-agents-deep-research",
+      "category": "research-agent",
+      "keywords": [
+        "research",
+        "agent",
+        "autonomous",
+        "deep-research",
+        "gpt-researcher",
+        "multi-source",
+        "synthesis"
+      ],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Deep-research agent market (gpt-researcher, dzhng/deep-research, DeepResearchAgent, etc.). Focus: novelty + adoption."
+    },
+    {
+      "id": "claude-code-skills-2026",
+      "category": "skill-pack",
+      "keywords": ["skill", "claude-code", "claude", "automation", "workflow", "plugin"],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Skill packs beyond ECC, ruflo, context-mode, claude-hud. Awesome-list sources: addyosmani/agent-skills, vercel-labs/agent-skills, ComposioHQ/awesome-claude-skills."
+    },
+    {
+      "id": "claude-code-hook-toolkits",
+      "category": "hook-toolkit",
+      "keywords": ["hook", "claude-code", "precommit", "safety", "enforcement", "block-dangerous"],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Hook-based automation (PreToolUse, PreCompact, etc.). Safety + enforcement frameworks."
+    },
+    {
+      "id": "code-intelligence-mcp-2026",
+      "category": "mcp-server",
+      "keywords": [
+        "code",
+        "intelligence",
+        "knowledge",
+        "graph",
+        "symbol",
+        "codebase",
+        "search",
+        "repomix",
+        "deepwiki",
+        "gitnexus"
+      ],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Code intelligence tier (Ry Walker taxonomy): knowledge graphs (gitnexus, code-graph-context), code search (octocode, codepathfinder), context packing (repomix, code2prompt), platforms (deepwiki, greptile)."
+    },
+    {
+      "id": "quant-trading-agent-stack",
+      "category": "code-library",
+      "keywords": ["quant", "trading", "agent", "neural", "backtest", "portfolio", "market"],
+      "last_scan": null,
+      "owner_projects": ["trading-system"],
+      "notes": "Quantitative trading + RL-trained agents. Owner: trading-system project. Covers neural-trader, market-data, ruvector, agentdb, RL frameworks."
+    },
+    {
+      "id": "prompt-compression-llm-eval",
+      "category": "code-library",
+      "keywords": [
+        "prompt",
+        "compression",
+        "token",
+        "optimization",
+        "llm",
+        "eval",
+        "benchmarking",
+        "caching"
+      ],
+      "last_scan": null,
+      "owner_projects": ["sota-research"],
+      "notes": "Prompt compression, token optimization, prompt caching patterns, LLM eval frameworks. Canonical repos: prompt-crafter, token-lens, prompt-optimizer."
+    }
+  ]
+}

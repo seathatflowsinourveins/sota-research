@@ -1,0 +1,11 @@
+{
+  "repo": "openai/codex",
+  "scanned_at": "2026-05-28T14:16:17Z",
+  "decision": "STUDY",
+  "ingestion_layer": "L2",
+  "source_count": 2,
+  "rubric_score_pending_recompute": true,
+  "l2_completed_at": "2026-05-28T16:18:00Z",
+  "l2_source": "deepwiki-official",
+  "notes": "L1 (clone + repomix) complete. L2 (deepwiki) complete. L3 (codex distill) pending."
+}

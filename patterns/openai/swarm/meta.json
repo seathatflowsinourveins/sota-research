@@ -1,0 +1,14 @@
+{
+  "repo": "openai/swarm",
+  "scanned_at": "2026-05-28T14:15:40Z",
+  "decision": "STUDY",
+  "ingestion_layer": "L2",
+  "source_count": 2,
+  "rubric_score_pending_recompute": true,
+  "l2_completed_at": "2026-05-28T16:18:00Z",
+  "l2_source": "deepwiki-official",
+  "notes": "L1 (clone + repomix) complete. L2 (deepwiki) complete. L3 (codex distill) pending.",
+  "l3_completed_at": "2026-05-28T16:25:52.585882+00:00",
+  "l3_segments": null,
+  "l3_synthesis_path": "sota-distill.md"
+}
