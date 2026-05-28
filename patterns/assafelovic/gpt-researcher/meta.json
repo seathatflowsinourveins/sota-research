@@ -1,0 +1,22 @@
+{
+  "repo": "assafelovic/gpt-researcher",
+  "scanned_at": "2026-05-28T14:15:45Z",
+  "decision": "STUDY",
+  "ingestion_layer": "L3",
+  "source_count": 2,
+  "rubric_score_pending_recompute": false,
+  "l2_completed_at": "2026-05-28T16:18:00Z",
+  "l2_source": "deepwiki-official",
+  "l3_completed_at": "2026-05-28T16:35:00Z",
+  "l3_segments": [
+    "segment-0-researcher-skill.md",
+    "segment-1-prompts-engineering.md",
+    "segment-2-image-generator.md",
+    "segment-3-agent-orchestrator.md",
+    "segment-4-deep-research.md"
+  ],
+  "l3_synthesis_path": "sota-distill.md",
+  "l3_top_pattern": "Bounded Provenance-Preserving Fanout",
+  "l3_cost_tokens": 36555,
+  "notes": "L3 segmented distillation complete (5 parallel codex sessions + meta-synthesis). Top adopt-worthy: architecture layer separation with source deduplication and citation preservation."
+}
