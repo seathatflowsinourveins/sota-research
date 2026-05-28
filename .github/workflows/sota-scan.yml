@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: 'chore(sota): scan results for ${{ inputs.topic }}'
           title: 'SOTA scan: ${{ inputs.topic }} - ${{ inputs.category }}'
