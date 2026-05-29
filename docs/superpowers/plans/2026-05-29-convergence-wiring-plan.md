@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** TIER 3 + close-out — `docs/research/adr-2026-05-29-deferred-enhancements.md` (R15 KEEP + R5/R8/R10/R11/R12/R14 deferred with revive-preconditions); deep-audit-backlog reconciled (resolved items + GPT-5.5 corrections); memory updated. **221 tests pass, `biome check .` clean (45 files).**
-- **Next slice:** NONE — the v3.1 convergence-wiring program (S1–S8 + ADRs) is COMPLETE. Tier 1 (R1,R3,R2,R6) + Tier 2 (R7,R9,R4-safe,R13) shipped; Tier 3 recorded.
+- **Last completed:** Code-review resolution (3 findings, TDD each, committed separately) — **S1** phase2Convergence per-source Set-union merge (`07892a9`, fixes multi-source drop + dup); **S4** de-vacuous Phase 2 aggregation tests now CALL `phase2Convergence` and assert real output (`b76afc0`); **C2** `run_id`+`decision_id` on decisions.jsonl, `DECISION_SCHEMA_VERSION`→2, one run_id per scan in discover()+bootstrap() via `node:crypto.randomUUID` (`0875447`). **228 tests pass, `biome check .` clean (45 files).**
+- **Next slice:** NONE — v3.1 convergence-wiring program (S1–S8 + ADRs) COMPLETE; the 3 review findings (S1-correctness / S4-test-quality / C2-provenance) are now resolved. Tier 1 (R1,R3,R2,R6) + Tier 2 (R7,R9,R4-safe,R13) shipped; Tier 3 recorded.
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
