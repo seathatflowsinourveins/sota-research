@@ -93,3 +93,35 @@ export function validateJudgeEvidence(item = {}) {
 
   return { ok: errors.length === 0, errors, clean };
 }
+
+/**
+ * Evidence-coverage gate — assesses whether the evidence for a set of dimensions
+ * meets a minimum coverage threshold. Used in the decision engine to cap tiers when
+ * dimension evidence is too sparse (missing values should not prop up INSTALL verdicts).
+ *
+ * Configurable threshold: callers set minCoverage (0..1); default 0.7 means at least
+ * 70% of dimensions must be evidenced (non-null) to pass through an INSTALL tier.
+ *
+ * @param {object} dims - {D1:number|null, D2:number|null, ..., D8:number|null}
+ * @param {object} [opts]
+ *   @param {number} [opts.minCoverage] - minimum fraction of evidenced dims (default 0.7)
+ *   @param {string[]} [opts.requiredDims] - which dims to check (default ['D1','D2','D3','D4','D5','D6','D7','D8'])
+ * @returns {{passedGate:boolean, coverage:number, note:string|null}}
+ *   coverage = fraction of requiredDims that have non-null values (0..1)
+ *   note = null if gate passes, else a string explaining the failure
+ */
+export function evidenceCoverageGate(
+  dims = {},
+  { minCoverage = 0.7, requiredDims = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"] } = {},
+) {
+  const total = requiredDims.length;
+  const evidenced = requiredDims.filter((d) => dims[d] != null).length;
+  const coverage = total > 0 ? evidenced / total : 0;
+
+  const passedGate = coverage >= minCoverage;
+  const note = passedGate
+    ? null
+    : `evidence-coverage-gate: ${evidenced}/${total} dims evidenced (${(coverage * 100).toFixed(0)}%) below threshold ${(minCoverage * 100).toFixed(0)}%`;
+
+  return { passedGate, coverage, note };
+}

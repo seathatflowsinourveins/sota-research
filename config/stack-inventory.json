@@ -2,19 +2,64 @@
   "version": "2026-05-28",
   "description": "Canonical ruflo-native stack inventory for D11 gap-fit / marginal-lift scoring. A candidate is judged on whether it fills a NAMED gap, ENHANCES an existing layer, or DUPLICATES installed capability. Source of truth for the objective-relevance gate (decision.mjs). Grounded in sota-runtime memory: sota-ecosystem-scope-decision + ruflo-vs-native-workflows-verdict.",
   "layers": {
-    "durable-memory": { "installed": ["agentdb (HNSW durable)", "memory (MCP)"], "pathway": "mcp", "saturated": true },
-    "vector-search": { "installed": ["ruvector", "agentdb-embeddings"], "pathway": "mcp", "saturated": true },
-    "orchestration": { "installed": ["native-workflows", "agent-teams"], "pathway": "native", "saturated": true, "note": "native dynamic workflows REPLACE ruflo claude-flow orchestration (convergence verdict 2026-05-28); do not install competing orchestrators" },
-    "routing-inference": { "installed": ["agentic-flow", "CLIProxy"], "pathway": "mcp", "saturated": true },
+    "durable-memory": {
+      "installed": ["agentdb (HNSW durable)", "memory (MCP)"],
+      "pathway": "mcp",
+      "saturated": true
+    },
+    "vector-search": {
+      "installed": ["ruvector", "agentdb-embeddings"],
+      "pathway": "mcp",
+      "saturated": true
+    },
+    "orchestration": {
+      "installed": ["native-workflows", "agent-teams"],
+      "pathway": "native",
+      "saturated": true,
+      "note": "native dynamic workflows REPLACE ruflo claude-flow orchestration (convergence verdict 2026-05-28); do not install competing orchestrators"
+    },
+    "routing-inference": {
+      "installed": ["agentic-flow", "CLIProxy"],
+      "pathway": "mcp",
+      "saturated": true
+    },
     "safety": { "installed": ["AIDefence"], "pathway": "mcp", "saturated": true },
     "ingestion": { "installed": ["repomix", "deepwiki"], "pathway": "npm-js", "saturated": true },
-    "research-discovery": { "installed": ["sota-research", "exa", "tavily", "jina", "brave-search", "semantic-scholar", "firecrawl", "github"], "pathway": "mcp", "saturated": true },
+    "research-discovery": {
+      "installed": [
+        "sota-research",
+        "exa",
+        "tavily",
+        "jina",
+        "brave-search",
+        "semantic-scholar",
+        "firecrawl",
+        "github"
+      ],
+      "pathway": "mcp",
+      "saturated": true
+    },
     "observability": { "installed": [], "pathway": null, "saturated": false }
   },
   "gaps": [
-    { "id": "eval-harness", "priority": "high", "build_not_install": true, "desc": "repo-specific eval/measurement harness (retrieval-hit evals + token/cost traces + Windows stability tests). Convergence verdict: BUILD, not install — no single repo fills it; assemble from promptfoo+deepeval+langfuse patterns." },
-    { "id": "llm-observability", "priority": "medium", "build_not_install": false, "desc": "dedicated LLM tracing / dashboard / trajectory visualization. Native otel hooks exist but no dashboard. langfuse is the deferred candidate (OTEL-native, TS)." },
-    { "id": "memory-parity-baseline", "priority": "medium", "build_not_install": false, "desc": "head-to-head retrieval eval to validate agentdb ~= mem0 before claiming parity (deep-audit-backlog #6). mem0 = measure-against baseline, not a replacement." }
+    {
+      "id": "eval-harness",
+      "priority": "high",
+      "build_not_install": true,
+      "desc": "repo-specific eval/measurement harness (retrieval-hit evals + token/cost traces + Windows stability tests). Convergence verdict: BUILD, not install — no single repo fills it; assemble from promptfoo+deepeval+langfuse patterns."
+    },
+    {
+      "id": "llm-observability",
+      "priority": "medium",
+      "build_not_install": false,
+      "desc": "dedicated LLM tracing / dashboard / trajectory visualization. Native otel hooks exist but no dashboard. langfuse is the deferred candidate (OTEL-native, TS)."
+    },
+    {
+      "id": "memory-parity-baseline",
+      "priority": "medium",
+      "build_not_install": false,
+      "desc": "head-to-head retrieval eval to validate agentdb ~= mem0 before claiming parity (deep-audit-backlog #6). mem0 = measure-against baseline, not a replacement."
+    }
   ],
   "strategic_priorities": ["eval-harness", "llm-observability", "memory-parity-baseline"],
   "policy": {

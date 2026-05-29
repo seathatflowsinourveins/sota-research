@@ -144,6 +144,51 @@ async function githubGraphQLDimensions(owner, repo) {
 }
 
 /**
+ * D6 Publisher-Risk Assessment (Behavioral Risk Overlay).
+ * Detects supply-chain risk: single-publisher control + high download velocity.
+ * Formula: publisher_risk = single_publisher_count × log10(weekly_downloads + 1)
+ *
+ * Configurable defaults (from rubric.md §7):
+ * - >= 6.0: RED flag, cap D6 at 6
+ * - 5.0-6.0: YELLOW flag, cap D6 at 7
+ * - < 5.0: GREEN, no cap
+ *
+ * @param {object} opts
+ *   @param {boolean} [opts.singlePublisher] - whether package is controlled by 1 publisher
+ *   @param {number} [opts.weeklyDownloads] - weekly download velocity
+ *   @param {object} [opts.config] - override thresholds {redThreshold, yellowThreshold}
+ * @returns {{flag:string, publisherRisk:number, cap:number|null, rationale:string}}
+ *   flag: 'RED' | 'YELLOW' | 'GREEN'
+ *   cap: D6 cap value (6, 7, or null for no cap)
+ */
+function assessPublisherRisk({ singlePublisher = false, weeklyDownloads = 0, config = {} } = {}) {
+  const cfg = {
+    redThreshold: 6.0,
+    yellowThreshold: 5.0,
+    ...config,
+  };
+
+  const publisherCount = singlePublisher ? 1 : 0;
+  const publisherRisk = publisherCount * Math.log10((weeklyDownloads || 0) + 1);
+
+  let flag = "GREEN";
+  let cap = null;
+  let rationale = "no publisher risk detected (multi-publisher or low downloads)";
+
+  if (publisherRisk >= cfg.redThreshold) {
+    flag = "RED";
+    cap = 6;
+    rationale = `single-publisher, ${(weeklyDownloads / 1e6).toFixed(1)}M+ weekly downloads (publisher_risk=${publisherRisk.toFixed(2)}) → supply-chain risk, cap D6 at ${cap}`;
+  } else if (publisherRisk >= cfg.yellowThreshold) {
+    flag = "YELLOW";
+    cap = 7;
+    rationale = `single-publisher, ${(weeklyDownloads / 1e3).toFixed(0)}k weekly downloads (publisher_risk=${publisherRisk.toFixed(2)}) → monitor, cap D6 at ${cap}`;
+  }
+
+  return { flag, publisherRisk, cap, rationale };
+}
+
+/**
  * Compute dimensions from raw GitHub data + agent-supplied evidence.
  *
  * D1 (stars) and D2 (maintenance velocity) are computed here from GraphQL.
@@ -157,7 +202,7 @@ async function githubGraphQLDimensions(owner, repo) {
  * D9 (Niche Excellence) is a conditional OVERLAY, not part of the weighted sum;
  * it is returned separately for the decision engine's escape-hatch rules.
  *
- * @returns {{dims: object, D9: number|null}}
+ * @returns {{dims: object, D9: number|null, publisherRiskAssessment: object}}
  */
 function computeDimensions(rawData, providedDims = {}) {
   const D1 = Math.min(10, Math.log10((rawData.stargazerCount || 0) + 1));
@@ -178,8 +223,19 @@ function computeDimensions(rawData, providedDims = {}) {
     const { pathway, evidence } = providedDims.D3pathway;
     dims.D3 = d3FromPathway(pathway, evidence);
   }
+
+  // D6 (adoption) publisher-risk assessment: single-publisher + high downloads cap D6.
+  // The agent supplies D6 evidence; we apply the behavioral overlay cap.
+  const publisherRiskAssessment = assessPublisherRisk({
+    singlePublisher: providedDims.publisherRiskSinglePublisher === true,
+    weeklyDownloads: Number(providedDims.publisherRiskWeeklyDownloads) || 0,
+  });
+  if (publisherRiskAssessment.cap != null && dims.D6 != null) {
+    dims.D6 = Math.min(dims.D6, publisherRiskAssessment.cap);
+  }
+
   const D9 = dimensionValue(providedDims.D9);
-  return { dims, D9 };
+  return { dims, D9, publisherRiskAssessment };
 }
 
 /**
@@ -212,7 +268,7 @@ export async function scoreRepo({
   const rawData = await githubGraphQLDimensions(owner, repo);
 
   // Compute dimensions (D1/D2 from GraphQL; D3–D8 from agent-supplied evidence)
-  const { dims, D9 } = computeDimensions(rawData, providedDims);
+  const { dims, D9, publisherRiskAssessment } = computeDimensions(rawData, providedDims);
 
   // Rubric score over EVIDENCED dimensions only (missing dims contribute 0).
   // `coverage` reports completeness so consumers can refuse to trust a partial
@@ -234,6 +290,7 @@ export async function scoreRepo({
     partial: coverage < 0.999,
     dimensions: dims,
     niche_overlay_D9: D9,
+    publisher_risk_assessment: publisherRiskAssessment,
     evidence: {
       stars: rawData.stargazerCount,
       forks: rawData.forkCount,

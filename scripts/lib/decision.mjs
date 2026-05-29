@@ -21,6 +21,9 @@
  *   blanket: a mitigated opt-in risk → INSTALL-LITE (config-gated), not REJECT.
  */
 
+import { normalizePathway } from "./d3-pathway.mjs";
+import { evidenceCoverageGate } from "./evidence.mjs";
+
 /** Action tiers, ordered weakest → strongest. */
 export const TIERS = ["REJECT", "WATCH", "REFERENCE", "STUDY", "INSTALL-LITE", "INSTALL-FULL"];
 const RANK = Object.fromEntries(TIERS.map((t, i) => [t, i]));
@@ -223,6 +226,27 @@ export function claimFreshnessGate(tier, { installClaimsRefreshed = true } = {})
 }
 
 /**
+ * D3 adoption-pathway veto — when no viable adoption pathway exists (null/unknown/NONE)
+ * and the tier is INSTALL-level, cap to STUDY. A repo without a known integration path
+ * into the Claude-Code runtime is studyable but not installable (risk-resolution #2:
+ * pathway veto prevents install recommendations for repos with no clear integration).
+ *
+ * @param {string} tier
+ * @param {{pathway?:string}} opts
+ * @returns {{tier:string, note:string|null}}
+ */
+export function d3PathwayVeto(tier, { pathway = null } = {}) {
+  const normalized = normalizePathway(pathway);
+  if (normalized == null && tierRank(tier) >= tierRank("INSTALL-LITE")) {
+    return {
+      tier: "STUDY",
+      note: `d3-pathway-veto: no viable adoption pathway (pathway="${pathway}") → cap STUDY`,
+    };
+  }
+  return { tier, note: null };
+}
+
+/**
  * Objective-relevance + marginal-value gate (added 2026-05-28 after the `codeg` miss:
  * a desktop session-dashboard reached a top-3 "install for workflow-feature quality"
  * verdict despite NOT improving the workflow features and overlapping existing tools).
@@ -284,6 +308,7 @@ export function routeDecision({
   installClaimsRefreshed = true,
   servesObjective = true,
   marginalValue = "medium",
+  adoptionPathway = null,
   provenance = null,
   rubricVersion = null,
 } = {}) {
@@ -368,6 +393,31 @@ export function routeDecision({
   if (tierRank(floor) > tierRank(tier)) {
     tier = floor;
     trace.push(`floor:${tier}(${applied.join("|")})`);
+  }
+
+  // 3b. evidence-coverage gate: sparse dimension evidence cannot prop up INSTALL verdicts.
+  // Missing evidence yields a LOW score; incomplete evidence should not bypass that.
+  // Gate caps at STUDY when coverage is below threshold + tier is INSTALL-level.
+  // Only apply gate if dims were explicitly provided (avoid capping when routing on score alone).
+  const hasDims = Object.values(dims).some((v) => v != null);
+  if (hasDims) {
+    const coverage = evidenceCoverageGate(dims);
+    if (!coverage.passedGate && tierRank(tier) > tierRank("STUDY")) {
+      tier = capTier(tier, "STUDY");
+      trace.push(coverage.note);
+    }
+  }
+
+  // 3c. D3 adoption-pathway veto: no viable integration path → cap INSTALL to STUDY.
+  // A repo without a known pathway to run in the Claude-Code runtime is studyable, not installable.
+  // Only apply veto if pathway was EXPLICITLY assessed and found to be null/unknown.
+  // When pathway is not assessed (not provided or undefined), skip this gate.
+  if (adoptionPathway !== undefined && adoptionPathway !== null) {
+    const pathway = d3PathwayVeto(tier, { pathway: adoptionPathway });
+    if (pathway.tier !== tier) {
+      tier = pathway.tier;
+      trace.push(pathway.note);
+    }
   }
 
   // 4. convergence ACTION cap by independent families (lower only)
