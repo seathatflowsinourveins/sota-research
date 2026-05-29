@@ -3,7 +3,7 @@
 - **Scope:** Claude Code runtime + research-architecture categories (mcp-server, agent-framework, agent-orchestration-pattern, research-agent, skill-pack, hook-toolkit)
 - **Sources (6 lanes):** GitHub topic/keyword search, GitHub frameworks search, Exa semantic, Tavily synthesis, Firecrawl awesome-lists/registries, Semantic Scholar
 - **Pipeline:** discover → converge (independent source families) → hard-filter → score D1–D11 → routeDecision → deep-audit → **GPT-5.5 (xhigh) convergence consensus**
-- **Result:** 48 candidates discovered, top 14 scored. **This run dogfooded the (just-fixed) engine — every gate fired correctly on real repos.**
+- **Result:** 48 candidates discovered, top 9 scored (listed below). **This run dogfooded the (just-fixed) engine — every gate fired correctly on real repos.**
 
 ## Convergence-consensus outcome (GPT-5.5)
 
