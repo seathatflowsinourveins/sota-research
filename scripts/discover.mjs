@@ -1,6 +1,7 @@
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
+import { assessProvenance } from "./lib/provenance.mjs";
 import { scoreRepo } from "./score.mjs";
 
 // M-1: Use secure ghGraphQL helper instead of shell-based executeGraphQL
@@ -387,6 +388,16 @@ async function phase4Score(candidates, category = "code-library") {
             sourceTrust: candidate.source_trust || null,
           });
 
+          // D10 provenance/trust overlay — computed from the GraphQL evidence scoreRepo
+          // already fetched (stars/forks/commits), so the astroturf/fake-star gate fires in
+          // the LIVE pipeline, not only in unit tests (Codex 2026-05-28). gap-fit (D11) +
+          // adoption-pathway (D3) need candidate-level judge evidence → still backlog.
+          const provenance = assessProvenance({
+            stars: scoreResult.evidence?.stars,
+            forks: scoreResult.evidence?.forks,
+            commits90d: scoreResult.evidence?.commits_90d,
+          });
+
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.
           const decision = routeDecision({
@@ -398,6 +409,7 @@ async function phase4Score(candidates, category = "code-library") {
             // SAFETY was verified in phase 3 (hard filter); pass it so routeDecision's
             // fail-closed INSTALL gate is satisfied for legitimately-filtered candidates.
             safety: candidate.safety || {},
+            provenance,
           });
 
           return {

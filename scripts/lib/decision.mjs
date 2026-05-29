@@ -308,7 +308,7 @@ export function routeDecision({
   installClaimsRefreshed = true,
   servesObjective = true,
   marginalValue = "medium",
-  adoptionPathway = null,
+  adoptionPathway = undefined,
   provenance = null,
   rubricVersion = null,
 } = {}) {
@@ -412,7 +412,9 @@ export function routeDecision({
   // A repo without a known pathway to run in the Claude-Code runtime is studyable, not installable.
   // Only apply veto if pathway was EXPLICITLY assessed and found to be null/unknown.
   // When pathway is not assessed (not provided or undefined), skip this gate.
-  if (adoptionPathway !== undefined && adoptionPathway !== null) {
+  // Distinguish OMITTED (undefined → skip) from EXPLICITLY ASSESSED (incl. null → run veto;
+  // an assessed-but-unknown pathway is studyable, not installable — Codex 2026-05-28).
+  if (adoptionPathway !== undefined) {
     const pathway = d3PathwayVeto(tier, { pathway: adoptionPathway });
     if (pathway.tier !== tier) {
       tier = pathway.tier;

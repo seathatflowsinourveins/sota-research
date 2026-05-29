@@ -91,9 +91,10 @@ export function assessGapFit(candidate = {}, inventory = {}, { scanIntent = "" }
   }
 
   // 3. Fills a NAMED gap (explicit or keyword-derived).
-  const gapId =
-    candidate.fillsGapId ||
-    gaps.find((g) => mentions(text, g.id) || mentions(scanIntent, g.id))?.id;
+  // Match a gap from CANDIDATE evidence only (its own name/keywords or explicit fillsGapId).
+  // scanIntent must NOT decide the match — that would rubber-stamp every candidate in the
+  // scan as filling the mentioned gap (Codex 2026-05-28); it only raises PRIORITY below.
+  const gapId = candidate.fillsGapId || gaps.find((g) => mentions(text, g.id))?.id;
   const gap = gaps.find((g) => g.id === gapId);
   if (gap) {
     const isStrategic = priorities.includes(gap.id) || mentions(scanIntent, gap.id);

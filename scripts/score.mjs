@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { d3FromPathway } from "./lib/d3-pathway.mjs";
-import { dimensionValue } from "./lib/evidence.mjs";
+import { dimensionValue, validateJudgeEvidence } from "./lib/evidence.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 
 /**
@@ -214,7 +214,16 @@ function computeDimensions(rawData, providedDims = {}) {
   // D3-D8 accept either a bare number or a judge evidence object {value,source,...};
   // a missing/non-finite value stays null (evidence contract — never a fabricated constant).
   for (const k of ["D3", "D4", "D5", "D6", "D7", "D8"]) {
-    dims[k] = dimensionValue(providedDims[k]);
+    const provided = providedDims[k];
+    if (provided !== null && typeof provided === "object") {
+      // judge evidence object → enforce the schema. Decision-grade evidence MUST carry a
+      // source ref (else treat as absent/null); out-of-range values are already nulled and
+      // chain-of-thought is stripped (Codex 2026-05-28).
+      const { clean } = validateJudgeEvidence(provided);
+      dims[k] = clean.source ? clean.value : null;
+    } else {
+      dims[k] = dimensionValue(provided); // bare number (back-compat) or null
+    }
   }
   // D3 (Claude-Code fit) fallback: if not supplied directly but a runtime pathway +
   // integration evidence are, derive the evidence-CAPPED pathway sub-score (the ladder

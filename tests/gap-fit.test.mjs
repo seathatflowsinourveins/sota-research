@@ -52,12 +52,19 @@ describe("gap-fit.mjs — assessGapFit (D11 marginal-lift gate input)", () => {
     expect(notBetter.servesObjective).toBe(false);
   });
 
-  it("scan-intent steers gap matching (highest-priority source)", () => {
-    const r = assessGapFit({ name: "langfuse" }, INV, {
+  it("matches a gap from CANDIDATE evidence; scan-intent alone never rubber-stamps", () => {
+    // candidate's OWN keyword matches the gap -> matched + (strategic priority) high
+    const matched = assessGapFit({ name: "langfuse", keywords: ["observability"] }, INV, {
+      scanIntent: "find observability tooling",
+    });
+    expect(matched.gapFilled).toBe("llm-observability");
+    expect(matched.marginalValue).toBe("high");
+    // scan-intent ALONE must NOT classify an unrelated candidate as filling the gap
+    const unrelated = assessGapFit({ name: "some-cli-tool" }, INV, {
       scanIntent: "find llm-observability tooling",
     });
-    expect(r.gapFilled).toBe("llm-observability");
-    expect(r.marginalValue).toBe("high");
+    expect(unrelated.gapFilled).toBeNull();
+    expect(unrelated.marginalValue).toBe("low");
   });
 
   it("no clear gap-fit → conservative low marginal value", () => {
