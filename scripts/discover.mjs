@@ -581,6 +581,31 @@ async function phase4Score(
 }
 
 /**
+ * R4-safe (honest source run-status): the SINGLE source of truth for the 8 phase-1 angles.
+ *
+ * Each descriptor pairs a stable family `name` with `live` (does the IN-SCRIPT function
+ * actually query its source this run?) and the `fn` itself. ONLY `github-search` is live
+ * in-script today; the other 7 are MCP/workflow-only stubs that return `[]`. Live multi-source
+ * fan-out (Exa/Tavily/Brave/Jina/Firecrawl/Semantic-Scholar) is the WORKFLOW LAYER's job — the
+ * MCPs exist only inside an interactive Claude Code session, not in this headless script.
+ *
+ * CRITICAL (GPT-5.5 trap): stubs MUST keep returning `[]` (NOT `{status:'NOT_RUN'}`) — a
+ * status object inside a candidate batch would break `phase2Convergence`'s `batch.forEach`.
+ * Run-status is therefore recorded in a SEPARATE `sourceStatus` channel (see `discover()`),
+ * so a reader knows a low `family_count` means "only 1 source ran", not "low quality".
+ */
+export const PHASE1_SOURCES = [
+  { name: "github-search", live: true, fn: githubGraphQLSearch },
+  { name: "github-advanced", live: false, fn: githubGraphQLAdvanced },
+  { name: "awesome-list", live: false, fn: awesomeListCrawl },
+  { name: "exa", live: false, fn: exaSemanticSearch },
+  { name: "tavily", live: false, fn: tavilyResearch },
+  { name: "brave-search", live: false, fn: braveTriage },
+  { name: "jina", live: false, fn: jinaRecency },
+  { name: "semantic-scholar", live: false, fn: semanticScholar },
+];
+
+/**
  * Main discovery function
  */
 export async function discover({
@@ -596,17 +621,20 @@ export async function discover({
     throw new Error("topic required");
   }
 
-  // Phase 1: Parallel fan-out
-  const phase1 = await Promise.all([
-    githubGraphQLSearch(topic, limit),
-    githubGraphQLAdvanced(topic, limit),
-    awesomeListCrawl([]),
-    exaSemanticSearch(topic, limit),
-    tavilyResearch(topic, limit),
-    braveTriage(topic, limit),
-    jinaRecency(topic, limit),
-    semanticScholar(topic, limit),
-  ]);
+  // Phase 1: Parallel fan-out, driven by the PHASE1_SOURCES descriptor (single source of truth).
+  // Every source returns an ARRAY of candidates (stubs return []) — never a status object — so
+  // phase2Convergence's batch.forEach is safe (GPT-5.5 trap). Run-status is tracked SEPARATELY.
+  const phase1 = await Promise.all(PHASE1_SOURCES.map((s) => s.fn(topic, limit)));
+
+  // R4-safe: honest source run-status in a SEPARATE channel (NOT inside the candidate arrays).
+  // Only `live` in-script sources RAN; the rest are NOT_RUN stubs. This tells a reader that a
+  // low family_count reflects "only 1 source ran" (currently just github-search), not low
+  // quality. Wiring the real non-GitHub sources is the WORKFLOW layer's job (MCP-only) — the
+  // SourceAdapter factory is deferred (ADR). Surfaced on the discover() return below.
+  const sourceStatus = PHASE1_SOURCES.map((s) => ({
+    source: s.name,
+    status: s.live ? "RUN" : "NOT_RUN",
+  }));
 
   // Phase 2: Convergence aggregation
   const phase2 = phase2Convergence(phase1);
@@ -673,6 +701,7 @@ export async function discover({
     scanFile: scanFileName,
     decisionsFile,
     decisions,
+    sourceStatus,
   };
 }
 

@@ -7,6 +7,7 @@ import {
   canonicalIdentity,
   countIndependentFamilies,
   discover,
+  PHASE1_SOURCES,
   phase2Convergence,
 } from "../scripts/discover.mjs";
 
@@ -365,6 +366,57 @@ describe("discover.mjs", () => {
         inventoryExists = false;
       }
       expect(inventoryExists).toBe(false);
+    });
+  });
+
+  describe("R4-safe — honest source run-status (SEPARATE channel, no batch.forEach break)", () => {
+    it("discover() returns sourceStatus marking github-search RUN and the 7 stubs NOT_RUN", async () => {
+      const result = await discover({ topic: "mcp-server", limit: 10 });
+      expect(result).toHaveProperty("sourceStatus");
+
+      const byName = new Map(result.sourceStatus.map((s) => [s.source, s.status]));
+      // Only github-search is a live source in-script; the rest are MCP/workflow-only stubs.
+      expect(byName.get("github-search")).toBe("RUN");
+      for (const stub of [
+        "github-advanced",
+        "awesome-list",
+        "exa",
+        "tavily",
+        "brave-search",
+        "jina",
+        "semantic-scholar",
+      ]) {
+        expect(byName.get(stub)).toBe("NOT_RUN");
+      }
+    });
+
+    it("exactly one of the 8 phase-1 sources ran (so a low family_count is 'only 1 source ran', not 'low quality')", async () => {
+      const result = await discover({ topic: "mcp-server", limit: 10 });
+      expect(result.sourceStatus).toHaveLength(8);
+      const ran = result.sourceStatus.filter((s) => s.status === "RUN");
+      expect(ran).toHaveLength(1);
+      expect(ran[0].source).toBe("github-search");
+    });
+
+    it("PHASE1_SOURCES is the single source of truth: 8 sources, exactly 1 live", () => {
+      expect(PHASE1_SOURCES).toHaveLength(8);
+      const live = PHASE1_SOURCES.filter((s) => s.live);
+      expect(live).toHaveLength(1);
+      expect(live[0].name).toBe("github-search");
+    });
+
+    it("does NOT inject {status} objects into candidate arrays — phase2Convergence still receives arrays", () => {
+      // Regression guard for the GPT-5.5 trap: a {status:'NOT_RUN'} object in a candidate
+      // batch would break phase2Convergence's batch.forEach. The status lives in a SEPARATE
+      // channel, so the candidate arrays stay pure arrays of candidates.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        [], // a stub source contributes an empty ARRAY, never a status object
+      ];
+      expect(() => phase2Convergence(phase1)).not.toThrow();
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
     });
   });
 });

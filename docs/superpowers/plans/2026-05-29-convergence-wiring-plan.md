@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S6 (R9) — `canonicalIdentity`/`canonicalSourceFamily`/`countIndependentFamilies` in `discover.mjs`; `phase2Convergence` now dedups by CANONICAL ORIGIN (a repo + its forks/mirrors/registry-derivatives fold to one identity) and family-counting folds all GitHub angles → one `github` family and all aggregators → one `external-aggregator` family (an aggregator-only signal can never alone reach ≥3/≥4). Soft-gate comment preserved; pure normalization, no GraphQL redirect call (deep resolve is workflow-side). **210 tests pass, Biome clean.**
-- **Next slice:** S8 (R4-safe — honest source run-status in a SEPARATE `sourceStatus` channel; stubs keep returning `[]`).
+- **Last completed:** S8 (R4-safe) — `PHASE1_SOURCES` descriptor (single source of truth: 8 angles, only `github-search` live) drives the phase-1 fan-out in `discover.mjs`; a SEPARATE `sourceStatus` array (`RUN`|`NOT_RUN`) is surfaced on the `discover()` return, so a low family_count reads as "only 1 source ran", not "low quality". Stubs STILL return `[]` (no `{status}` object injected → `phase2Convergence.batch.forEach` unbroken); live multi-source fan-out is explicitly the workflow layer's job (adapter factory deferred to ADR). **214 tests pass, Biome clean.**
+- **Next slice:** S7 (R13-scoped — rubric-contract test with KNOWN_BACKLOG allowlist; LAND LAST).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -60,11 +60,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] Impl: pure `canonicalIdentity` (folds fork/mirror evidence to the origin, lowercase) as the `phase2Convergence` dedup key; `canonicalSourceFamily` + `countIndependentFamilies` collapse GitHub angles → one family and aggregators → one family; `calculateSourceTrust` family-count uses the same canonicalization. Soft-gate comment preserved. NO per-candidate GraphQL redirect call (deep resolve noted as workflow-side).
 - [x] Verified: **210 tests pass, Biome clean.** Commit `feat(trust): R9 canonicalize forks/mirrors before family-convergence`.
 
-### S8 — R4-safe: honest source run-status (separate channel) + wire one real source (G1)
-- [ ] Read `scripts/discover.mjs` (stub sources ~54–120; fan-out ~457–466; `phase2Convergence` `batch.forEach` ~178–181).
-- [ ] **Failing test:** family_count is computed only from sources that actually RAN; a NOT_RUN source does not silently understate convergence; `phase2Convergence` still receives arrays (no shape break).
-- [ ] Impl: keep each source returning an array, but record run-status in a SEPARATE `sourceStatus` map (`RUN|NOT_RUN|ERROR`) — never inject `{status}` objects into the candidate arrays (would break `batch.forEach`). Wire ONE real source end-to-end (the live workflow already has the MCP; pick the cheapest, e.g. GitHub advanced or one web angle). Defer the adapter factory (ADR).
-- [ ] Verify green + commit `feat(discovery): R4 honest source run-status channel + one live source (no silent family undercount)`.
+### S8 — R4-safe: honest source run-status (separate channel) + wire one real source (G1) ✅ DONE
+- [x] Read `scripts/discover.mjs` (stub sources, fan-out, `phase2Convergence` `batch.forEach`).
+- [x] **Failing test** (`tests/discover.test.mjs`, 4 new): `discover()` returns `sourceStatus` marking github-search RUN + the 7 stubs NOT_RUN (exactly 1 of 8 ran); `PHASE1_SOURCES` is the single source of truth (8 sources, 1 live); a stub contributes an empty ARRAY (never a `{status}` object) so `phase2Convergence` does not throw.
+- [x] Impl: `PHASE1_SOURCES` descriptor (`{name, live, fn}`) drives the fan-out via `Promise.all(map)`; stubs keep returning `[]`; run-status recorded in a SEPARATE `sourceStatus` array (`RUN`|`NOT_RUN`) surfaced on the return. `github-search` is the one live in-script source; live multi-source fan-out (Exa/Tavily/Brave/Jina/Semantic-Scholar — MCP-only) is documented as the workflow layer's job; adapter factory deferred (ADR).
+- [x] Verified: **214 tests pass, Biome clean.** Commit `feat(discovery): R4 honest source run-status channel (no silent family undercount)`.
 
 ### S7 — R13-scoped: rubric-contract test with backlog allowlist (structural antidote) — LAND LAST
 - [ ] Read `scripts/score.mjs` (~74–85 weight check), `docs/rubric.md` (declared dims/overlays/gates).
