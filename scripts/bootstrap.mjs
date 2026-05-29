@@ -149,13 +149,17 @@ export async function bootstrap({
     return bScore - aScore;
   });
 
-  // BUG A: Load inventory once for gap-fit assessment
-  let inventory = null;
+  // Load inventory once for gap-fit. Fail CLOSED — an empty fallback would silently
+  // disable objective gating (everything passes as servesObjective). config/stack-
+  // inventory.json is tracked, so a load failure is real misconfiguration: stop the
+  // scan loudly instead of mis-routing (CodeRabbit major).
+  let inventory;
   try {
     inventory = loadStackInventory(baseDir);
   } catch (err) {
-    console.warn(`Failed to load stack inventory: ${err.message}`);
-    inventory = { gaps: [], layers: {}, strategic_priorities: [] };
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
   }
 
   // Write inventory/bootstrap-<ISO-date>.md

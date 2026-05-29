@@ -92,9 +92,11 @@ describe("score.mjs", () => {
       expect(result.adoption_pathway).toBe("mcp");
     });
 
-    it("returns null adoption_pathway when no pathway was assessed (unassessed != no-pathway)", async () => {
+    it("returns undefined adoption_pathway when no pathway was assessed (tri-state: unassessed skips the veto)", async () => {
       const result = await scoreRepo({ owner: "test", repo: "repo", category: "mcp-server" });
-      expect(result.adoption_pathway).toBeNull();
+      // Tri-state: UNASSESSED (no D3pathway input) => undefined so the pathway veto SKIPS;
+      // assessed-without-pathway => null => veto fires. (Set by score.mjs computeDimensions.)
+      expect(result.adoption_pathway).toBeUndefined();
     });
 
     it("D6 publisher-risk fires on the 0/1 single-publisher count, not only boolean true", async () => {

@@ -250,7 +250,11 @@ function computeDimensions(rawData, providedDims = {}) {
   // Expose the assessed adoption PATHWAY (string) so the D3 pathway-veto can fire in the
   // live pipeline. Source it from the pathway INPUT, never dims.D3 (a number) — reading
   // `dims.D3.pathway` was always undefined, leaving the veto inert in production.
-  const adoptionPathway = providedDims.D3pathway?.pathway ?? null;
+  // Tri-state (Codex ship-gate 2026-05-28): UNASSESSED (no D3pathway) → undefined so the
+  // pathway veto SKIPS downstream; assessed-with-pathway → the string; assessed-without → null → veto.
+  const adoptionPathway = providedDims.D3pathway
+    ? (providedDims.D3pathway.pathway ?? null)
+    : undefined;
   return { dims, D9, publisherRiskAssessment, adoptionPathway };
 }
 

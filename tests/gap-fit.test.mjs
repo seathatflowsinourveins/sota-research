@@ -105,18 +105,8 @@ describe("integration: BUG A — gap-fit overlay live wiring", () => {
  * BUG D Integration: publisher-risk count semantics (0/1 vs boolean).
  * Verify that the scoring path normalizes singlePublisher as numeric 1 OR boolean true.
  */
-describe("integration: BUG D — publisher-risk count semantics", () => {
-  it("D6 cap triggers on numeric singlePublisher=1 (not just boolean)", () => {
-    // BUG D: The code normalizes singlePublisher to treat numeric 1 and boolean true
-    // the same way. This is integration-level documentation: the code checks
-    // (singlePublisher === true || singlePublisher === 1), so both forms trigger risk.
-    // The D6 publisher-risk test in d6-publisher-risk.test.mjs exercises the real path.
-    const numericOne = 1;
-    const booleanTrue = true;
-    // In JS, numeric 1 is NOT === to boolean true
-    expect(numericOne === booleanTrue).toBe(false);
-    // But both forms are equivalent in the rubric semantics
-    expect(numericOne).toBe(1);
-    expect(booleanTrue).toBe(true);
-  });
-});
+// D6 publisher-risk count semantics (numeric 1 vs boolean true) are covered by a REAL
+// scoreRepo-path assertion in tests/score.test.mjs (regression for the fail-open bug).
+// The prior placeholder block here asserted only JS literals (1 === 1, true === true)
+// and was removed (CodeRabbit minor): a test that can pass while the real normalization
+// is broken is worse than no test.

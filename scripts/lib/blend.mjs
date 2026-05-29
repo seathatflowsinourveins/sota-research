@@ -8,7 +8,7 @@
  * the rubric documents.
  *
  * Formula:
- *   convergence_factor = 0.80 + min(0.05 * independent_families, 0.20)   // 1→0.80 … 4+→1.00
+ *   convergence_factor = 0.80 + min(0.05 * independent_families, 0.20)   // 0→0.80, 1→0.85 … 4+→1.00
  *   final = 0.6 * (rubric_score * convergence_factor) + 0.4 * codex_score
  *
  * Post-blend SCORE caps by INDEPENDENT families (belt-and-suspenders with the

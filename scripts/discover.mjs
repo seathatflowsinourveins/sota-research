@@ -398,12 +398,16 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
   const scoredCandidates = [];
 
   // BUG A: Load inventory once to avoid repeated file I/O
-  let inventory = null;
+  // Fail CLOSED — an empty fallback would silently disable objective gating in live
+  // scans. config/stack-inventory.json is tracked; a load failure is real misconfig,
+  // so stop loudly instead of mis-routing (CodeRabbit major).
+  let inventory;
   try {
     inventory = loadStackInventory(baseDir);
   } catch (err) {
-    console.warn(`Failed to load stack inventory: ${err.message}`);
-    inventory = { gaps: [], layers: {}, strategic_priorities: [] };
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
   }
 
   // Process candidates in concurrent batches
@@ -440,7 +444,9 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
           // BUG A & B: Assess gap-fit (D11) and extract adoption_pathway (D3) for the
           // decision engine's objective-relevance gate and pathway veto.
           const gapFit = assessGapFit(candidate, inventory, { scanIntent: category });
-          const adoptionPathway = scoreResult.adoption_pathway || null;
+          // Preserve the tri-state: undefined (unassessed) must NOT collapse to null, else
+          // the D3 pathway veto wrongly caps every candidate in a real run (Codex ship-gate).
+          const adoptionPathway = scoreResult.adoption_pathway;
 
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.
