@@ -501,6 +501,37 @@ describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting 
     });
   });
 
+  describe("phase2Convergence — per-source Set-union merge (S1 correctness)", () => {
+    it("a multi-source candidate contributes ALL its distinct sources when sources[0] is already present", () => {
+      // Bug: the old merge guarded on `includes(candidate.sources[0])` then pushed ALL sources,
+      // so a later candidate whose sources[0] is already present dropped its remaining NEW sources.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        // arrives with github-search (already present) FOLLOWED BY two genuinely new sources
+        [{ nameWithOwner: "owner/repo", sources: ["github-search", "exa", "tavily"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].source_list).toEqual(["github-search", "exa", "tavily"]);
+      expect(out[0].source_count).toBe(3);
+    });
+
+    it("never duplicates a source already accumulated (Set-union, not blind push)", () => {
+      // Bug: when sources[0] was NOT yet present, the old merge pushed the WHOLE array — duplicating
+      // any later source that was already accumulated.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search", "exa"], hint: {} }],
+        // exa already present; arrives as the SECOND element behind a new source → blind push dupes it
+        [{ nameWithOwner: "owner/repo", sources: ["tavily", "exa"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      // distinct union, each source exactly once, first-seen order preserved
+      expect(out[0].source_list).toEqual(["github-search", "exa", "tavily"]);
+      expect(new Set(out[0].source_list).size).toBe(out[0].source_list.length);
+    });
+  });
+
   describe("phase2Convergence — aggregator family-count via source_trust", () => {
     it("an aggregator-only candidate reports family_count ≤ 1", () => {
       const phase1 = [

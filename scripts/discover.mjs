@@ -260,8 +260,12 @@ export function phase2Convergence(allResults) {
         });
       }
       const entry = canonicalMap.get(key);
-      if (!entry.sources.includes(candidate.sources[0])) {
-        entry.sources.push(...candidate.sources);
+      // Per-source Set-union (S1 correctness): add EACH source the candidate carries that isn't
+      // already accumulated. The prior guard keyed only on sources[0] then pushed the whole array,
+      // which (a) dropped the rest when sources[0] was already present and (b) duplicated a later
+      // source when sources[0] was new. Iterating per-source folds in every distinct source once.
+      for (const src of candidate.sources || []) {
+        if (!entry.sources.includes(src)) entry.sources.push(src);
       }
     });
   });
