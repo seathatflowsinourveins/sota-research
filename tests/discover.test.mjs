@@ -123,53 +123,55 @@ describe("discover.mjs", () => {
   });
 
   describe("Phase 2: convergence aggregation", () => {
-    it("should deduplicate candidates by nameWithOwner", () => {
-      // Test the canonicalization + source counting logic
-      // Simulate phase-1 results with duplicates
-      const phase1Results = [
-        { nameWithOwner: "owner/repo", sources: ["github"], hint: { stars: 100 } },
-        { nameWithOwner: "owner/repo", sources: ["tavily"], hint: { stars: 100 } },
-        { nameWithOwner: "other/repo", sources: ["exa"], hint: { stars: 50 } },
+    it("dedups by canonical identity, collapsing the same origin across sources into one candidate", () => {
+      // CALL phase2Convergence on phase-1 batches with a duplicate origin (was a vacuous fixture assert).
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        [{ nameWithOwner: "owner/repo", sources: ["tavily"], hint: { stars: 100 } }],
+        [{ nameWithOwner: "other/repo", sources: ["exa"], hint: { stars: 50 } }],
       ];
-
-      // Expected: 3 items in input (dedup happens in phase2Convergence)
-      expect(phase1Results).toHaveLength(3);
+      const out = phase2Convergence(phase1);
+      // owner/repo's two appearances collapse to one; other/repo is distinct → 2 candidates.
+      expect(out).toHaveLength(2);
+      const owner = out.find((c) => c.nameWithOwner === "owner/repo");
+      expect(owner).toBeDefined();
+      expect(owner.source_count).toBe(2);
     });
 
-    it("should filter out single-source low-signal candidates", () => {
-      // Candidates with source_count==1 AND hint.stars < threshold should drop
-      const phase1Results = [
-        { nameWithOwner: "owner/low", sources: ["github"], hint: { stars: 10 } },
+    it("aggregates source_count and source_list across the sources that surfaced one origin", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 80 } }],
+        [{ nameWithOwner: "owner/repo", sources: ["exa"], hint: { stars: 80 } }],
       ];
-
-      // Expected: single input item (convergence filters it)
-      expect(phase1Results).toHaveLength(1);
-    });
-
-    it("should retain multi-source candidates regardless of signal", () => {
-      const phase1Results = [
-        {
-          nameWithOwner: "owner/repo",
-          sources: ["github", "exa", "tavily"],
-          hint: { stars: 5 },
-        },
-      ];
-
-      // Expected: kept (3 sources)
-      expect(phase1Results[0].sources).toHaveLength(3);
-    });
-
-    it("should compute source_count and source_list", () => {
-      // After convergence, each candidate should have source_count and source_list
-      const candidate = {
-        nameWithOwner: "owner/repo",
-        sources: ["github", "exa"],
-        source_count: 2,
-        source_list: ["github", "exa"],
-      };
-
+      const [candidate] = phase2Convergence(phase1);
       expect(candidate.source_count).toBe(2);
-      expect(candidate.source_list).toEqual(["github", "exa"]);
+      expect(candidate.source_list).toEqual(["github-search", "exa"]);
+      // source_trust is attached so the decision engine can family-count downstream.
+      expect(candidate.source_trust).toHaveProperty("family_count");
+    });
+
+    it("RETAINS a low-star single-source candidate (soft-gate — must NOT be dropped here)", () => {
+      // Rubric §1: a low-star niche repo can be best-in-area; convergence must not auto-reject it.
+      // Volume is bounded downstream (action-cap → STUDY + triage Top-K), never by dropping it here.
+      const phase1 = [
+        [{ nameWithOwner: "owner/low", sources: ["github-search"], hint: { stars: 3 } }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/low");
+      expect(out[0].source_count).toBe(1);
+    });
+
+    it("folds a fork/mirror candidate into its origin (R9 canonicalIdentity) before counting", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 900 } }],
+        [{ nameWithOwner: "forker/repo", forkOf: "owner/repo", sources: ["exa"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      // fork folds to the origin identity → one canonical candidate carrying both sources.
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
+      expect(out[0].source_list).toEqual(["github-search", "exa"]);
     });
   });
 
