@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S8 (R4-safe) — `PHASE1_SOURCES` descriptor (single source of truth: 8 angles, only `github-search` live) drives the phase-1 fan-out in `discover.mjs`; a SEPARATE `sourceStatus` array (`RUN`|`NOT_RUN`) is surfaced on the `discover()` return, so a low family_count reads as "only 1 source ran", not "low quality". Stubs STILL return `[]` (no `{status}` object injected → `phase2Convergence.batch.forEach` unbroken); live multi-source fan-out is explicitly the workflow layer's job (adapter factory deferred to ADR). **214 tests pass, Biome clean.**
-- **Next slice:** S7 (R13-scoped — rubric-contract test with KNOWN_BACKLOG allowlist; LAND LAST).
+- **Last completed:** S7 (R13-scoped) — new `scripts/lib/rubric-contract.mjs` (`checkRubricContract`/`assertRubricContract` + curated `RUBRIC_PRODUCERS` map + `DECLARED_CONTRACT` + `KNOWN_BACKLOG`); asserts every declared dim/overlay/gate (D1–D11 + the decision.mjs gates) has a LIVE producer wired, EXCEPT the explicit backlog allowlist (honeypot active-malware, weight auto-tuning, live multi-source fan-out). No markdown parsed; NOT a load-time hard-fail (CI/test-only via `tests/rubric-contract.test.mjs`, which proves it BITES when a producer is removed). **221 tests pass, Biome clean.** ← TIER 2 COMPLETE (R7,R9,R4-safe,R13).
+- **Next slice:** TIER 3 (ADRs — no code) + close-out. Convergence-wiring code program (S1–S8) is DONE.
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -66,11 +66,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] Impl: `PHASE1_SOURCES` descriptor (`{name, live, fn}`) drives the fan-out via `Promise.all(map)`; stubs keep returning `[]`; run-status recorded in a SEPARATE `sourceStatus` array (`RUN`|`NOT_RUN`) surfaced on the return. `github-search` is the one live in-script source; live multi-source fan-out (Exa/Tavily/Brave/Jina/Semantic-Scholar — MCP-only) is documented as the workflow layer's job; adapter factory deferred (ADR).
 - [x] Verified: **214 tests pass, Biome clean.** Commit `feat(discovery): R4 honest source run-status channel (no silent family undercount)`.
 
-### S7 — R13-scoped: rubric-contract test with backlog allowlist (structural antidote) — LAND LAST
-- [ ] Read `scripts/score.mjs` (~74–85 weight check), `docs/rubric.md` (declared dims/overlays/gates).
-- [ ] **Failing test** (`tests/rubric-contract.test.mjs`): every dimension/overlay/gate `rubric.md` DECLARES has a live producer wired into the path — D1/D2 (GraphQL), D3 (d3-pathway, S2), D4 (Scorecard, S5), D9/D10/D11 — EXCEPT an explicit `KNOWN_BACKLOG` allowlist; removing a producer makes it fail. Do NOT parse aspirational/future-expansion docs; assert against a curated declared-producer map.
-- [ ] Impl: `scripts/lib/rubric-contract.mjs` + CI wire (`assertRubricContract`); allowlist documents remaining backlog (honeypot, weight-tuning). NOT a load-time hard-fail in `discover.mjs` (advisory/CI only).
-- [ ] Verify green + commit `feat(contract): R13 scoped rubric-contract test (declared==wired, backlog-allowlisted)`.
+### S7 — R13-scoped: rubric-contract test with backlog allowlist (structural antidote) — LAND LAST ✅ DONE
+- [x] Read `scripts/score.mjs` (weight check + producers), `docs/rubric.md` (declared dims/overlays/gates), the live producer modules (d3-pathway/evidence/provenance/gap-fit/decision).
+- [x] **Failing test** (`tests/rubric-contract.test.mjs`, 7): every declared dim/overlay/gate has a live producer (D1/D2→`scoreRepo`, D3→`d3FromPathway`/`pathwayFromCategory`, D4→`validateJudgeEvidence` incl. R7 probe, D5–D8→`scoreRepo`, D9→`overrideFloor`, D10→`assessProvenance`, D11→`assessGapFit`, + the decision.mjs gates) EXCEPT `KNOWN_BACKLOG`; the BITES tests prove removing D10 / `convergence-action-cap` fails the contract. No markdown parsed.
+- [x] Impl: `scripts/lib/rubric-contract.mjs` — `RUBRIC_PRODUCERS` (curated in-code map of real function refs), `DECLARED_CONTRACT`, `KNOWN_BACKLOG` (honeypot active-malware / weight auto-tuning / live multi-source fan-out), `checkRubricContract({producers})` → `{ok,missing,checked}`, `assertRubricContract()` throws on unwired. CI wire = the Vitest test under `npm test`; NOT a load-time hard-fail in `discover.mjs` (advisory/CI only).
+- [x] Verified: **221 tests pass, Biome clean.** Commit `feat(contract): R13 scoped rubric-contract test (declared==wired, backlog-allowlisted)`.
 
 ---
 
