@@ -11,11 +11,11 @@
 
 ## ⏯️ RESUME HERE — update after every verified slice
 
-- **Branch:** `feature/research-arch-sota-enhancement` (main repo `C:/SEA/src/sota-research`)
-- **Commits:** `2fb6862` spec · `c5aeaac` plan(v1) · `1cef869` Task 0 (force/CRLF)
-- **Last completed:** Task 0 (lint: `--force` idempotency wired)
-- **Next task:** Task A (wire D3 pathway + surface-veto) — highest value
-- **Last verification:** Task 0 green (ingest test pass; touched files Biome-clean)
+- **Branch:** `feature/research-arch-v3` (main repo `C:/SEA/src/sota-research`) — supersedes ancestor `feature/research-arch-sota-enhancement` (at `19d2995`).
+- **Commits:** `2fb6862` spec · `c5aeaac` plan(v1) · `1cef869` Task 0 · `b968cbc` plan(v2) · `19d2995` adopt v3.0-CORE WIP baseline · `cf83531` wire 4 orphaned gates + D6 fix.
+- **Last completed:** `cf83531` — wired evidence-coverage, D3-pathway veto, provenance-suspect cap, gap-fit relevance; called d3FromPathway in scoring; fixed the D6 publisher-risk formula. **169 tests pass, Biome clean.** Claude spec+quality review: all correct.
+- **Next task:** GPT-5.5 final review IN PROGRESS → then consolidate branch; Phase-1 finalize complete. Remaining work = v3 BACKLOG (behavioral/MTTR security, Top-N comparative matrix, full StarScout provenance detector, LLM-judge ensemble + calibration, weight auto-tuning) — all need labeled/historical data.
+- **Last verification:** `npm test` 169 pass / 0 fail; `npm run lint` clean (41 files).
 - **Resume protocol:** read this header → `git -C C:/SEA/src/sota-research log --oneline` → `cd` to main repo, `npm test` → continue from first unchecked box → commit each verified slice, update this header in the same commit.
 - **Known baseline debt (NOT this plan's job):** ~23–28 pre-existing repo-wide Biome errors on `main`. The `TaskCompleted` hook is scoped to changed files, so keep YOUR touched files clean; the pre-existing debt is logged for a separate cleanup.
 
