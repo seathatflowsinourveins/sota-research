@@ -345,7 +345,17 @@ describe("discover.mjs", () => {
       const content = await fsp.readFile(result.decisionsFile, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       expect(lines.length).toBeGreaterThan(0);
-      expect(JSON.parse(lines[0])).toHaveProperty("schema_version");
+      const parsed = lines.map((l) => JSON.parse(l));
+      expect(parsed[0]).toHaveProperty("schema_version");
+
+      // C2 provenance: every record from one scan shares ONE run_id, and each decision_id is
+      // unique per repo (run_id::repo). This lets the consumer group + de-dup a run downstream.
+      const runIds = new Set(parsed.map((r) => r.run_id));
+      expect(runIds.size).toBe(1);
+      expect([...runIds][0]).toBeTruthy();
+      const decisionIds = parsed.map((r) => r.decision_id);
+      expect(new Set(decisionIds).size).toBe(decisionIds.length); // all unique
+      expect(parsed[0].decision_id).toBe(`${parsed[0].run_id}::${parsed[0].repo}`);
 
       const files = await fsp.readdir(join(dir, "inventory"));
       expect(files.some((f) => /^scan-.*\.md$/.test(f))).toBe(true);

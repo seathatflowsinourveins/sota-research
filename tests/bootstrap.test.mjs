@@ -267,11 +267,20 @@ describe("bootstrap.mjs", () => {
       const content = await fs.readFile(result.decisions_file, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       expect(lines.length).toBeGreaterThan(0);
-      const rec = JSON.parse(lines[0]); // outcome.mjs does exactly this
+      const records = lines.map((l) => JSON.parse(l)); // outcome.mjs does exactly this
+      const rec = records[0];
       expect(rec).toHaveProperty("ts");
       expect(rec).toHaveProperty("repo");
       expect(rec).toHaveProperty("action");
       expect(rec).toHaveProperty("schema_version");
+
+      // C2 provenance: one run_id for the whole bootstrap scan; decision_id unique per repo.
+      const runIds = new Set(records.map((r) => r.run_id));
+      expect(runIds.size).toBe(1);
+      expect([...runIds][0]).toBeTruthy();
+      const decisionIds = records.map((r) => r.decision_id);
+      expect(new Set(decisionIds).size).toBe(decisionIds.length); // unique per repo
+      expect(rec.decision_id).toBe(`${rec.run_id}::${rec.repo}`);
     });
 
     it("R1: writes a scan-*.md (reconciles the PR-body drift that referenced inventory/scan-*.md)", async () => {

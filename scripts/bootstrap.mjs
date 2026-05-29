@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { deriveDecisionInputs, discover } from "./discover.mjs";
@@ -242,6 +243,10 @@ export async function bootstrap({
   // R1: persist the decision envelopes + a scan-<ts>.md (the filename the SOTA-scan PR body
   // references). discover() was called with persist:false above, so each candidate is logged
   // exactly once, here, from the unified merged set.
+  // C2 provenance: ONE run_id for the whole bootstrap scan (ISO timestamp + short random suffix);
+  // every record shares it, decision_id (runId::repo) is unique per repo. Cross-run dedup is the
+  // consumer's job (deferred calibration).
+  const runId = `${now.toISOString()}-${randomUUID().slice(0, 8)}`;
   const decisionRecords = decided.map(({ candidate: c, finalScore, category, decision, di }) =>
     buildDecisionRecord({
       repo: c.nameWithOwner,
@@ -253,6 +258,7 @@ export async function bootstrap({
       servesObjective: di?.servesObjective ?? null,
       marginalValue: di?.marginalValue ?? null,
       adoptionPathway: di?.adoptionPathway ?? null,
+      runId,
     }),
   );
   let decisionsFile = null;

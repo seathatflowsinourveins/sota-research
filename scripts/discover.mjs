@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { computeFinalScore } from "./lib/blend.mjs";
 import { pathwayFromCategory } from "./lib/d3-pathway.mjs";
 import { compareByDecision, routeDecision } from "./lib/decision.mjs";
@@ -681,6 +682,11 @@ export async function discover({
   const timestamp = new Date().toISOString();
   const scanFileName = `inventory/scan-${timestamp.split("T")[0]}-${timestamp.split("T")[1].split(".")[0].replace(/:/g, "")}.md`;
 
+  // C2 provenance: ONE run_id per scan (ISO timestamp + a short random suffix) so every
+  // decisions.jsonl record from this run shares it; decision_id (runId::repo) is unique per repo.
+  // Cross-run dedup is the consumer's job (deferred calibration) — this just stamps the lineage.
+  const runId = `${timestamp}-${randomUUID().slice(0, 8)}`;
+
   const decisions = phase4
     .filter((c) => c?.decision?.action)
     .map((c) =>
@@ -695,6 +701,7 @@ export async function discover({
         servesObjective: c.servesObjective ?? null,
         marginalValue: c.marginalValue ?? null,
         adoptionPathway: c.adoptionPathway ?? null,
+        runId,
       }),
     );
 

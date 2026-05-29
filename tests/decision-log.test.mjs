@@ -68,6 +68,27 @@ describe("decision-log: buildDecisionRecord", () => {
   it("throws on a missing repo (a decision with no subject is a bug, never a silent skip)", () => {
     expect(() => buildDecisionRecord({ decision: ENVELOPE })).toThrow(/repo/);
   });
+
+  it("carries run_id + a per-repo unique decision_id when runId is supplied (C2 provenance)", () => {
+    const rec = buildDecisionRecord({
+      repo: "owner/repo",
+      finalScore: 74,
+      decision: ENVELOPE,
+      runId: "2026-05-29T00:00:00.000Z-ab12cd34",
+    });
+    expect(rec.run_id).toBe("2026-05-29T00:00:00.000Z-ab12cd34");
+    expect(rec.decision_id).toBe("2026-05-29T00:00:00.000Z-ab12cd34::owner/repo");
+  });
+
+  it("defaults run_id and decision_id to null when no runId is supplied (back-compat)", () => {
+    const rec = buildDecisionRecord({ repo: "owner/repo", finalScore: 74, decision: ENVELOPE });
+    expect(rec.run_id).toBeNull();
+    expect(rec.decision_id).toBeNull();
+  });
+
+  it("bumps DECISION_SCHEMA_VERSION to 2 (run_id/decision_id added)", () => {
+    expect(DECISION_SCHEMA_VERSION).toBe(2);
+  });
 });
 
 describe("decision-log: appendDecisions", () => {

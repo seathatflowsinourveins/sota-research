@@ -20,8 +20,10 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { atomicWrite } from "./atomic-write.mjs";
 
-/** Bump when the decisions.jsonl record shape changes (lets outcome.mjs migrate). */
-export const DECISION_SCHEMA_VERSION = 1;
+/** Bump when the decisions.jsonl record shape changes (lets outcome.mjs migrate).
+ * v2 (C2 provenance): added `run_id` + `decision_id` so the consumer can group records by the
+ * scan that produced them and address each decision uniquely (cross-run dedup stays consumer-side). */
+export const DECISION_SCHEMA_VERSION = 2;
 
 /**
  * Build one decisions.jsonl record from a scored candidate's routeDecision envelope.
@@ -31,6 +33,8 @@ export const DECISION_SCHEMA_VERSION = 1;
  * @param {object} input
  * @param {string} input.repo - "owner/name" (required; a decision with no subject is a bug)
  * @param {object} input.decision - the routeDecision() return (must carry `action`)
+ * @param {string} [input.runId] - the scan-wide run identifier (C2 provenance); null when absent.
+ *   Every record from one scan shares this; `decision_id` is `runId::repo` (unique per repo).
  * @returns {object} the JSONL record
  */
 export function buildDecisionRecord({
@@ -46,6 +50,7 @@ export function buildDecisionRecord({
   provenanceTrustTier = null,
   codexVerdict = null,
   rubricVersion = null,
+  runId = null,
   ts = null,
 } = {}) {
   if (!repo) throw new Error("buildDecisionRecord: repo is required");
@@ -55,6 +60,8 @@ export function buildDecisionRecord({
   const score = Number.isFinite(finalScore) ? Math.round(finalScore * 10) / 10 : null;
   return {
     ts: ts || new Date().toISOString(),
+    run_id: runId ?? null,
+    decision_id: runId ? `${runId}::${repo}` : null,
     repo,
     action: decision.action,
     score,
