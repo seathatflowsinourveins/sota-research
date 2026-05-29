@@ -60,7 +60,7 @@ function printDryRun(topicsToProcess, NAMED_TARGETS) {
  * Decide one candidate via the single decision engine. Used for BOTH the markdown table
  * and the persisted decisions.jsonl record (R1), so the human view + audit log never diverge.
  */
-function decideCandidate(c, inventory = {}, scanIntent = "") {
+export function decideCandidate(c, inventory = {}, scanIntent = "") {
   const rubricScore = c.score?.rubric_score || 0;
   const codexScore = c.score?.codex_score || 0;
   const sourceCount = c.source_count || 1;
@@ -75,13 +75,17 @@ function decideCandidate(c, inventory = {}, scanIntent = "") {
   });
   const families = sourceTrust?.family_count ?? sourceCount;
   // R3: gate bootstrap's decisions on gap-fit + adoption-pathway too (same engine inputs as
-  // discover's phase4Score) so both runtime faces route identically.
+  // discover's phase4Score) so both runtime faces route identically — INCLUDING forwarding a
+  // discovered candidate's verified safety (QC fix, GPT-5.5 convergence). Without it, routeDecision's
+  // fail-closed INSTALL gate silently caps safety-verified discovery candidates to STUDY here. Named
+  // targets carry no safety, so they correctly stay fail-closed to STUDY (their safety was never verified).
   const di = deriveDecisionInputs(c, inventory, { scanIntent, category });
   const decision = routeDecision({
     score: finalScore,
     families,
     category,
     dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+    safety: c.safety || {},
     servesObjective: di.servesObjective,
     marginalValue: di.marginalValue,
     adoptionPathway: di.adoptionPathway,

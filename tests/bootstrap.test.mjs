@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bootstrap } from "../scripts/bootstrap.mjs";
+import { bootstrap, decideCandidate } from "../scripts/bootstrap.mjs";
 import { tierRank } from "../scripts/lib/decision.mjs";
 
 // Mock GraphQL response state (for discover/score calls within bootstrap)
@@ -172,19 +172,46 @@ describe("bootstrap.mjs", () => {
   });
 
   describe("Named targets scoring", () => {
-    it("should score 12 named bootstrap targets", async () => {
-      // NAMED_TARGETS list:
-      // assafelovic/gpt-researcher
-      // ComposioHQ/agent-orchestrator
-      // HKUDS/OpenHarness
-      // multica-ai/multica
-      // safishamsi/graphify
-      // punkpeye/awesome-mcp-servers
-      // + 6 more
+    it("should score the 6 named bootstrap targets", async () => {
+      // NAMED_TARGETS list (6):
+      // assafelovic/gpt-researcher · ComposioHQ/agent-orchestrator · HKUDS/OpenHarness
+      // multica-ai/multica · safishamsi/graphify · punkpeye/awesome-mcp-servers
 
       const result = await bootstrap({ baseDir: tempDir });
 
       expect(result.named_targets_scored).toBeGreaterThanOrEqual(0);
+    });
+
+    it("QC: decideCandidate forwards a discovered candidate's verified safety (else fail-closed wrongly caps it to STUDY)", () => {
+      // A safety-verified, high-scoring, gap-filling, multi-family mcp-server candidate.
+      const inventory = {
+        gaps: [{ id: "eval-harness", priority: "high" }],
+        strategic_priorities: ["eval-harness"],
+        layers: {},
+      };
+      const base = {
+        nameWithOwner: "o/eval-harness-tool",
+        hint: { topics: ["eval", "harness"], description: "eval harness" },
+        source_trust: { family_count: 4 },
+        score: {
+          category: "mcp-server",
+          rubric_score: 95,
+          codex_score: 95,
+          niche_overlay_D9: 0,
+          coverage: 1,
+          dimensions: { D1: 9, D2: 9, D3: 9, D4: 9, D5: 9, D6: 9, D7: 9, D8: 9 },
+        },
+      };
+      const withSafety = decideCandidate(
+        { ...base, safety: { passedUpstream: true } },
+        inventory,
+        "eval harness",
+      );
+      const without = decideCandidate({ ...base }, inventory, "eval harness");
+
+      // Safety-verified → reaches an INSTALL tier; unverified → fail-closed to STUDY.
+      expect(tierRank(withSafety.decision.action)).toBeGreaterThan(tierRank("STUDY"));
+      expect(tierRank(without.decision.action)).toBeLessThanOrEqual(tierRank("STUDY"));
     });
 
     it("should include named targets even if discovery yields nothing", async () => {
