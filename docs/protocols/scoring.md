@@ -2,22 +2,30 @@
 
 Two-stage rubric: Stage-1 hard filter → Stage-2 8-dimension scoring + OpenSSF Scorecard.
 
-## Stage-1 Hard Filter (6 gates — no API calls)
+## Stage-1 Filter — SAFETY (hard) vs QUALITY (soft)
 
-Applied in [discovery.md](./discovery.md) Phase 3. Any gate failure → REJECT.
+Applied in [discovery.md](./discovery.md) Phase 3 (`hardFilterSingleRepo`). **Reconciled to the
+soft-gate model (rubric.md §1 + `scripts/lib/decision.mjs`):** only SAFETY gates hard-REJECT;
+QUALITY gates attach flags the decision engine weighs — they NEVER auto-reject, because a
+low-star niche repo can be best-in-area for pattern study (the operator's core requirement).
 
+**SAFETY (HARD — any fail → REJECT):**
 1. **License** — MIT/Apache-2.0/BSD-2/BSD-3/ISC/MPL-2.0 (LGPL/GPL only for code-library)
-2. **Recency** — last commit ≤6mo OR last release ≤9mo (mature-utility exception: 2+yr stable with issue activity)
-3. **Substance** — ≥30 lifetime commits OR ≥3 contributors OR ≥1 release
-4. **Not archived/deprecated/read-only** — `isArchived=false`, `isMirror=false`, `isDisabled=false`
-5. **Honeypot/bot-author detection (per A.8)** — reject if:
-   - Star spike >50k/48h without commits
-   - Commit author email matches `/(build-bot|ci-bot|auto-ci|pipeline-bot|@cdn-cgi)/i`
-6. **Category-fit pre-check** — has ≥1 type-specific marker:
-   - MCP: `mcp.json` OR stdio transport file
-   - Skill: `skill.md` OR Claude plugin artifact
-   - Agent: agent entry point + orchestration pattern
-   - etc.
+2. **Not archived/disabled/mirror** — `isArchived=false`, `isDisabled=false`, `isMirror=false`
+3. **No confirmed malware/honeypot** — only INDEPENDENTLY-CONFIRMED supply-chain/malware fraud
+   rejects here. Soft astroturf signals (star spike, bot-author) do NOT reject — they feed the
+   D10 provenance overlay ("suspect" → action cap + human review). Active-malware detection is
+   still a documented gap (honeypot gate is a stub — see deep-audit-backlog).
+
+**QUALITY (SOFT — failures become flags on `candidate.quality`, routed by the engine):**
+- **Recency** — `recency:stale` if last commit >6mo AND last release >9mo
+- **Substance** — `substance:minimal` if <30 commits AND <3 authors AND <1 release
+- **Category-fit** — `category-fit:weak` if no README/type marker (MCP `mcp.json`, skill `SKILL.md`,
+  agent entry point + orchestration pattern, etc.)
+- **Bot-author** — `risk:bot-author-dominant` (email matches `/(build-bot|ci-bot|auto-ci|pipeline-bot|@cdn-cgi)/i`) — signal only
+
+These flags inform tier + triage via `qualityFlags`/`overrideFloor` in the decision engine; they
+do not gate the candidate out. The convergence ACTION cap + triage Top-K bound volume instead.
 
 ## Stage-2: 8 Dimensions (each 0-10, scored in parallel)
 

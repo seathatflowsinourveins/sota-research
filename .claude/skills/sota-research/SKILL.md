@@ -51,18 +51,42 @@ npm run outcome -- --window 30
 - **`patterns/<owner>/<repo>/deepwiki.md`** — L2: semantic architecture/techniques/pitfalls (DeepWiki MCP)
 - **`patterns/<owner>/<repo>/sota-distill.md`** — L3: ADR-style distillation with novel techniques + adoption targets (Codex)
 
-## Scoring & Thresholds
+## Scoring & Thresholds — the decision engine is authoritative
 
-| Score | Action | Next |
+**The recommendation for every candidate is the `action` returned by `routeDecision()`
+(`scripts/lib/decision.mjs`) — never the score band alone, and never the workflow's own
+judgment.** The table below is only the *base tier*; the engine then applies, in order:
+override floors → evidence-coverage gate → D3 adoption-pathway veto → convergence action-cap
+→ provenance overlay → late-security demotion → claim-freshness → objective-relevance /
+marginal-value → fail-closed safety. A score of 92 can still resolve to STUDY (no runtime
+pathway, thin evidence, duplicative of the installed stack, or unverified safety).
+
+| Score | **Base tier** (pre-gates) | Ingestion *if the engine confirms* |
 |---|---|---|
-| ≥90 | INSTALL-FULL | L1+L2+L3 ingestion, adversarial Codex pass |
-| 80-89 | INSTALL-LITE / STUDY | L1+L2 ingestion, skill/MCP/hook extraction |
-| 70-79 | STUDY | L1+L2 ingestion, reference clone |
-| 60-69 | REFERENCE | L1 only, clone to ~/sota-repos/ |
-| 40-59 | WATCH | Re-eval in 90d or on next major release |
+| ≥90 | INSTALL-FULL | L1+L2+L3, adversarial Codex pass |
+| 80-89 | INSTALL-LITE (mcp/skill/hook) else STUDY | L1+L2, skill/MCP/hook extraction |
+| 70-79 | STUDY | L1+L2, reference clone |
+| 60-69 | REFERENCE | L1 only |
+| 40-59 | WATCH | Re-eval in 90d / next major release |
 | <40 | REJECT | Log reason, no re-eval |
 
-Multi-source convergence modulates score: single-source ≤80 (auto-demote); 3+ sources ≥80; 4+ sources auto-eligible for INSTALL.
+**Convergence is a CAP, not auto-eligibility:** independent source *families* cap the action
+(≤1 → STUDY ceiling; 2 → INSTALL-LITE + manual review; 3 → INSTALL-LITE; 4+ → up to
+INSTALL-FULL). Reaching INSTALL *additionally* requires a real adoption pathway (D3),
+demonstrated marginal value over the installed stack (gap-fit), verified safety, and human
+review. Low stars never auto-reject (soft gate) — a low-star niche repo routes to
+STUDY/REFERENCE for pattern study.
+
+### Anti-improvisation contract (do NOT free-form the verdict)
+
+Read `docs/protocols/decision.md` first. The scoring stage MUST call `routeDecision` (or, in
+the multi-agent workflow, reproduce its inputs and **emit its decision-envelope verbatim**),
+and write one fenced ```json decision-envelope block per candidate into
+`inventory/scan-<ts>.md` (`{action, flags, review_required, override_applied, families,
+servesObjective, marginalValue, adoptionPathway, trace}`). The recommendation presented to
+the user IS that envelope's `action`. The workflow may gather more evidence and re-run the
+engine; it may NEVER hand-edit the tier the engine produced. This is what keeps the codified
+rigor from being bypassed by prose (the "codeg miss" root cause).
 
 ## Rubric & Protocols
 

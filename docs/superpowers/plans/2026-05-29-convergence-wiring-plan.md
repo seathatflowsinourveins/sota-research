@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S2 (R3) — `pathwayFromCategory` (category→runtime surface) + exported `deriveDecisionInputs` (gap-fit + pathway) wired into discover's `phase4Score` AND bootstrap's `decideCandidate`; `objectiveRelevanceGate` + `d3PathwayVeto` now run LIVE (no longer no-ops); values persisted in the R1 record. **188 tests pass, Biome clean.**
-- **Next slice:** S3 (R2 — bind SKILL.md/protocols to the routeDecision decision-envelope + anti-improvisation contract).
+- **Last completed:** S3 (R2) — SKILL.md "engine is authoritative" + anti-improvisation contract; decision.md canonical decision-envelope section; scoring.md Stage-1 reconciled to SAFETY-hard/QUALITY-soft (fixed the doc drift that contradicted the soft gate). Doc-only; **188 tests pass.**
+- **Next slice:** S5 (R7 — OpenSSF Scorecard probe + probe_status, confidence-cap not reject).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -33,11 +33,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] Impl: `pathwayFromCategory` (category→runtime surface; null=study-not-install, preserving soft-gate) in d3-pathway.mjs; exported `deriveDecisionInputs` (gap-fit + pathway) in discover.mjs; wired into `phase4Score` + bootstrap `decideCandidate`; values flow into `routeDecision` AND the persisted record.
 - [x] Verified: **188 tests pass, Biome clean.** Conservative default: no gap evidence → `marginalValue:"low"` → INSTALL caps to STUDY (the codeg-miss fix, live).
 
-### S3 — R2: bind live workflow to the `routeDecision` decision-envelope + anti-improvisation contract (G2)
-- [ ] Read `.claude/skills/sota-research/SKILL.md` (Scoring & Thresholds ~54–65, Architecture), `docs/protocols/decision.md`, `docs/protocols/scoring.md`.
-- [ ] Impl (docs/prompts — the runtime): in `SKILL.md` replace the prose thresholds + "4+ sources auto-eligible" with: the scoring stage MUST call/emit the `routeDecision` **decision-envelope** as a fenced ```json block per candidate (action, flags, trace[], families, override_applied, rubricVersion) and the recommendation MUST be the envelope's `action` (no free-form override). Add an explicit **anti-improvisation contract** ("read decision.md; the engine decides the tier; the workflow may add evidence, never override the gate"). Standardize the envelope shape in `decision.md`.
-- [ ] **Verification** (envelope emission is exercised by S1's scan-md test): assert `scan-<ts>.md` contains a decision-envelope json block per candidate; manual check that SKILL.md no longer contains a tier rule that contradicts `routeDecision`.
-- [ ] Commit `feat(workflow): R2 bind SKILL.md to routeDecision decision-envelope + anti-improvisation (close engine<->workflow gap)`.
+### S3 — R2: bind live workflow to the `routeDecision` decision-envelope + anti-improvisation contract (G2) ✅ DONE
+- [x] Read SKILL.md + decision.md + scoring.md.
+- [x] SKILL.md: replaced the bare score-band table + "4+ sources auto-eligible" with "**the engine is authoritative**" (base tier → ordered gates), convergence-is-a-CAP, and the **anti-improvisation contract** (emit/honor the envelope; never hand-edit the engine's tier).
+- [x] decision.md: added the canonical **decision-envelope** contract section. scoring.md: Stage-1 reconciled to SAFETY-hard / QUALITY-soft (was "6 hard gates → reject", which contradicted the soft gate + the operator's core ask).
+- [x] Envelope emission already exercised by `renderScanMarkdown` (S1). Doc-only; **188 tests pass.**
 
 ### S4 — R6: rank Top-K by `(action, final_score, coverage, objective-relevance)`, forbid appearance-count (G6)
 - [ ] Read `scripts/bootstrap.mjs` (~145–194 sort), `scripts/discover.mjs` (phase2 triage / topK), `tests/bootstrap.test.mjs` (~216–223 sort assertions).
