@@ -15,9 +15,13 @@ const executeGraphQL = ghGraphQL;
  * Returns candidates from GitHub with basic metadata
  */
 async function githubGraphQLSearch(topic, limit = 25) {
+  // Clamp `limit` to a bounded int before interpolating it into the GraphQL document (GitHub
+  // search caps `first` at 100). Defense-in-depth: never interpolate an unbounded/non-numeric
+  // value into a query string (code-review S2).
+  const first = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 25));
   const query = `
     query Search($q: String!, $cursor: String) {
-      search(query: $q, type: REPOSITORY, first: ${limit}, after: $cursor) {
+      search(query: $q, type: REPOSITORY, first: ${first}, after: $cursor) {
         repositoryCount
         pageInfo { hasNextPage endCursor }
         nodes {

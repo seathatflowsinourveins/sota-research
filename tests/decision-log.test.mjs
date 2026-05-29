@@ -7,6 +7,7 @@ import {
   buildDecisionRecord,
   DECISION_SCHEMA_VERSION,
   renderScanMarkdown,
+  writeScanMarkdown,
 } from "../scripts/lib/decision-log.mjs";
 
 // A representative routeDecision() envelope (the object discover.mjs phase4Score returns).
@@ -139,5 +140,13 @@ describe("decision-log: renderScanMarkdown", () => {
     expect(md).toContain("a/b");
     expect(md).toContain("INSTALL-LITE");
     expect(md).toMatch(/```json[\s\S]*"action": "INSTALL-LITE"[\s\S]*```/); // auditable envelope block
+  });
+});
+
+describe("decision-log: writeScanMarkdown path containment", () => {
+  it("rejects a scanFile that escapes baseDir (S3 hardening)", () => {
+    expect(() => writeScanMarkdown([], { baseDir: tmpdir(), scanFile: "../escape.md" })).toThrow(
+      /escape/i,
+    );
   });
 });

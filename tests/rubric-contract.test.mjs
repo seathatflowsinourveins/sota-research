@@ -42,6 +42,15 @@ describe("rubric-contract — declared==wired (scoped, backlog-allowlisted)", ()
     expect(missing).toContain("D10");
   });
 
+  it("BITES on KEY DELETION too: an omitted producer entry is caught (required-set is decoupled)", () => {
+    // C1 hardening: the required surface is a frozen literal, NOT Object.keys(producers) — so
+    // dropping a producer ENTRY (not just nulling it) is still demanded and flagged missing.
+    const { D10: _omitted, ...withoutD10 } = RUBRIC_PRODUCERS;
+    const { ok, missing } = checkRubricContract({ producers: withoutD10 });
+    expect(ok).toBe(false);
+    expect(missing).toContain("D10");
+  });
+
   it("BITES: assertRubricContract throws when a declared gate producer is removed", () => {
     const broken = { ...RUBRIC_PRODUCERS, "convergence-action-cap": null };
     expect(() => assertRubricContract({ producers: broken })).toThrow(/convergence-action-cap/);

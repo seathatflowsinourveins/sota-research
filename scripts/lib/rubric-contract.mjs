@@ -71,8 +71,37 @@ export const RUBRIC_PRODUCERS = {
   "objective-relevance-gate": objectiveRelevanceGate,
 };
 
-/** The rubric-declared items this contract REQUIRES to be wired (everything except backlog). */
-export const DECLARED_CONTRACT = Object.keys(RUBRIC_PRODUCERS);
+/**
+ * The rubric-declared items this contract REQUIRES to be wired. Declared INDEPENDENTLY of
+ * `RUBRIC_PRODUCERS` (NOT `Object.keys` of it): a contract whose required-set is derived from
+ * the actual-set can never detect a REMOVAL — deleting the `D10:` entry would also shrink the
+ * required-set and pass vacuously. This frozen literal is the explicit, reviewable surface; if a
+ * producer is dropped from the map, the contract still demands the key and fails (code-review C1).
+ */
+export const REQUIRED_PRODUCER_KEYS = Object.freeze([
+  "D1",
+  "D2",
+  "D3",
+  "D3-category",
+  "D4",
+  "D5",
+  "D6",
+  "D7",
+  "D8",
+  "D9",
+  "D10",
+  "D11",
+  "safety-veto",
+  "convergence-action-cap",
+  "evidence-coverage-gate",
+  "d3-pathway-veto",
+  "late-security-demotion",
+  "claim-freshness-gate",
+  "objective-relevance-gate",
+]);
+
+/** Back-compat alias — the required-key set IS the declared contract. */
+export const DECLARED_CONTRACT = REQUIRED_PRODUCER_KEYS;
 
 /**
  * Explicit allowlist of rubric-declared work that is KNOWN to be unwired (deferred) — these
@@ -97,8 +126,8 @@ export const KNOWN_BACKLOG = [
  * @returns {{ok:boolean, missing:string[], checked:number}}
  */
 export function checkRubricContract({ producers = RUBRIC_PRODUCERS } = {}) {
-  const missing = DECLARED_CONTRACT.filter((key) => typeof producers[key] !== "function");
-  return { ok: missing.length === 0, missing, checked: DECLARED_CONTRACT.length };
+  const missing = REQUIRED_PRODUCER_KEYS.filter((key) => typeof producers[key] !== "function");
+  return { ok: missing.length === 0, missing, checked: REQUIRED_PRODUCER_KEYS.length };
 }
 
 /**

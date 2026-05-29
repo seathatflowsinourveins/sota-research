@@ -17,7 +17,7 @@
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { atomicWrite } from "./atomic-write.mjs";
 
 /** Bump when the decisions.jsonl record shape changes (lets outcome.mjs migrate). */
@@ -150,6 +150,13 @@ export function writeScanMarkdown(
 ) {
   if (!scanFile) throw new Error("writeScanMarkdown: scanFile is required");
   const file = join(baseDir, scanFile);
+  // Path containment: scanFile is internally generated (timestamped), but enforce the boundary
+  // so a future caller can never write outside baseDir (defense-in-depth, code-review S3).
+  const root = resolve(baseDir);
+  const resolved = resolve(file);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    throw new Error(`writeScanMarkdown: scanFile escapes baseDir (${scanFile})`);
+  }
   mkdirSync(dirname(file), { recursive: true });
   atomicWrite(file, renderScanMarkdown(records, { topic }));
   return { file };
