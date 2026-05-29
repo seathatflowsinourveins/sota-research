@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S4 (R6) — `compareByDecision`/`decisionRankKey`/`MARGINAL_VALUE_RANK` in decision.mjs; bootstrap + discover now rank by the ENGINE VERDICT (action tier→score→coverage→marginal value), not raw rubric_score; recommendations carry the verdict (action/final_score). **193 tests pass, Biome clean.** ← TIER 1 COMPLETE (R1,R3,R2,R6).
-- **Next slice:** S5 (R7 — OpenSSF Scorecard probe + probe_status, confidence-cap not reject) — TIER 2 begins.
+- **Last completed:** S5 (R7) — `probe_status` (`ok`|`unavailable`|`stale`, default `ok`) on the judge-evidence schema in `evidence.mjs`; an `unavailable`/`stale`/unknown probe CAPS confidence (≤0.5 via `capConfidenceForProbe`) and NEVER nulls the value or rejects (soft-gate); scoring.md documents the outage→cap rule; no network call added to the script. **200 tests pass, Biome clean.** ← TIER 2 begun (R7).
+- **Next slice:** S6 (R9 — canonicalize forks/mirrors/registry-derivatives before family-counting; aggregators count ≤1 family).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -48,11 +48,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 
 ## TIER 2 — evidenced quality + trust
 
-### S5 — R7: OpenSSF Scorecard real D4 probe + `probe_status` (G6/G4) — confidence-cap on outage, NOT reject
-- [ ] Read `scripts/lib/evidence.mjs` (`validateJudgeEvidence`), `docs/rubric.md` (evidence contract ~118-121), `docs/protocols/scoring.md` (~54-67).
-- [ ] **Failing test:** evidence object with `probe_status:'unavailable'` caps confidence (does NOT reject / does NOT zero D4); a present Scorecard score flows into D4 with `probe_status:'ok'`.
-- [ ] Impl: extend the evidence schema with `probe_status` (`ok|unavailable|stale`); the live workflow (scoring.md/SKILL.md) fetches `scorecard.dev` API JSON for D4 + records `score` + per-check signals; outage → `probe_status:'unavailable'` + confidence cap (soft-gate preserved).
-- [ ] Verify green + commit `feat(quality): R7 OpenSSF Scorecard probe + probe_status (confidence-cap, not fail-closed)`.
+### S5 — R7: OpenSSF Scorecard real D4 probe + `probe_status` (G6/G4) — confidence-cap on outage, NOT reject ✅ DONE
+- [x] Read `scripts/lib/evidence.mjs` (`validateJudgeEvidence`), `docs/rubric.md` (evidence contract ~118-121), `docs/protocols/scoring.md` (~54-67).
+- [x] **Failing test** (`tests/evidence.test.mjs`, 8 new): `probe_status:'unavailable'`/`'stale'`/unknown caps confidence ≤0.5 (does NOT reject / does NOT null the value); `'ok'`/absent leaves it; a present Scorecard score still flows through.
+- [x] Impl: extended the evidence schema with `probe_status` (`ok|unavailable|stale`, default `ok`) + `capConfidenceForProbe` + `DEGRADED_PROBE_CONFIDENCE_CAP` in `evidence.mjs`; unknown status is flagged AND treated like `unavailable`. scoring.md documents outage→`probe_status:'unavailable'`+cap, never reject. NO network call added to the script (fetch is workflow/agent-side).
+- [x] Verified: **200 tests pass, Biome clean.** Commit `feat(quality): R7 OpenSSF Scorecard probe_status (confidence-cap, not fail-closed)`.
 
 ### S6 — R9: canonicalize forks/mirrors/registry-derivatives before family-counting (G6 anti-astroturf)
 - [ ] Read `scripts/discover.mjs` `phase2Convergence` (~178–207) + `calculateSourceTrust` (~126–172); `docs/protocols/discovery.md` (resolveCanonical prose).

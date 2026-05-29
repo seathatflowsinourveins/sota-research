@@ -74,6 +74,15 @@ curl https://api.scorecard.dev/projects/github.com/{owner}/{repo}
 
 Scorecard includes 18+ checks (CI, dependabot, signed-commits, code-review, etc.). **Caveat (per A.2, A.9):** Goodhart-prone — some checks measure feature adoption, not actual security. Use as ONE signal only.
 
+**Outage handling — soft-gate, NOT fail-closed (R7, GPT-5.5 verdict).** When the Scorecard probe
+is unreachable or only a stale/cached result is available, record it on the D4 evidence item as
+`probe_status:'unavailable'` (or `'stale'`) — this CAPS the evidence `confidence` (≤0.5 via
+`scripts/lib/evidence.mjs` `validateJudgeEvidence`), it does **NOT** null/zero D4 and does **NOT**
+reject the candidate. An OpenSSF outage is an evidence-availability gap, never a quality verdict;
+the D4B internal signals still carry the dimension. Default `probe_status` is `'ok'` (probe
+answered → confidence flows through unchanged). The fetch itself happens in the live workflow
+(agent-side, this file's endpoints) — the script never makes the network call.
+
 ## Score blending formula
 
 ```javascript
