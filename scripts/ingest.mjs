@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { atomicWrite } from "./lib/atomic-write.mjs";
@@ -310,8 +311,10 @@ export async function ingest({
   const outputDir = join(baseDir, "patterns", owner, repo);
   const metaPath = join(outputDir, "meta.json");
 
-  // Check if already ingested
-  // TODO: Check if meta.json exists; bail unless force=true
+  // Idempotency: skip if already ingested unless force=true (wires the --force CLI flag)
+  if (!force && existsSync(metaPath)) {
+    return { meta: null, ingest_results: {}, meta_path: metaPath, skipped: "already-ingested" };
+  }
 
   const results = {};
   const depthLevel = depth;

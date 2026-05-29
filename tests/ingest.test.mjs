@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { promises as fs } from "node:fs";
+import { promises as fs, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -240,6 +240,19 @@ describe("ingest.mjs", () => {
       // L1.5 should run but not invoke gitnexus (mock file count < 10000)
       expect(result.ingest_results.l15).toHaveProperty("gitnexus_invoked");
       expect(result.ingest_results.l15.gitnexus_invoked).toBe(false);
+    });
+  });
+
+  describe("ingest idempotency (force)", () => {
+    let dir;
+    afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
+    it("skips when meta.json exists and force=false", async () => {
+      dir = mkdtempSync(join(tmpdir(), "sota-ingest-"));
+      const metaDir = join(dir, "patterns", "o", "r");
+      mkdirSync(metaDir, { recursive: true });
+      writeFileSync(join(metaDir, "meta.json"), "{}");
+      const res = await ingest({ owner: "o", repo: "r", depth: "L1", force: false, baseDir: dir });
+      expect(res.skipped).toBe("already-ingested");
     });
   });
 });
