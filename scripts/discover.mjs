@@ -440,7 +440,7 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
           // BUG A & B: Assess gap-fit (D11) and extract adoption_pathway (D3) for the
           // decision engine's objective-relevance gate and pathway veto.
           const gapFit = assessGapFit(candidate, inventory, { scanIntent: category });
-          const adoptionPathway = scoreResult.dimensions?.D3?.pathway || null;
+          const adoptionPathway = scoreResult.adoption_pathway || null;
 
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.

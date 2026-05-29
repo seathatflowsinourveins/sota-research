@@ -194,7 +194,7 @@ export async function bootstrap({
 
       // BUG A & B: Assess gap-fit and extract adoption pathway
       const gapFit = assessGapFit(c, inventory, { scanIntent: category });
-      const adoptionPathway = c.score?.dimensions?.D3?.pathway || null;
+      const adoptionPathway = c.score?.adoption_pathway || null;
 
       // Decision routing via the single decision engine (soft gate + multi-factor
       // floors + convergence ACTION cap by independent families).
