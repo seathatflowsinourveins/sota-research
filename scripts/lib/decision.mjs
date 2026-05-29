@@ -47,6 +47,34 @@ export function capTier(tier, cap) {
   return lower(tier, cap);
 }
 
+/** Marginal-value ordering for ranking (higher = more marginal lift over the installed stack). */
+export const MARGINAL_VALUE_RANK = { high: 4, medium: 3, low: 2, none: 1, duplicate: 0 };
+
+/**
+ * R6: the rank key for a decided candidate — by ENGINE VERDICT, not a raw dimension or
+ * appearance-count. Tuple: [action tier, final score, evidence coverage, marginal value].
+ * An unknown/failed action ranks last (tier -1) so a SCORE_FAILED candidate never crashes a sort.
+ * @returns {number[]}
+ */
+export function decisionRankKey({ action, score = 0, coverage = 0, marginalValue } = {}) {
+  return [
+    RANK[action] ?? -1,
+    Number(score) || 0,
+    Number(coverage) || 0,
+    MARGINAL_VALUE_RANK[marginalValue] ?? 2,
+  ];
+}
+
+/** Descending comparator over decisionRankKey (negative → `a` ranks first). Use with Array.sort. */
+export function compareByDecision(a, b) {
+  const ka = decisionRankKey(a);
+  const kb = decisionRankKey(b);
+  for (let i = 0; i < ka.length; i++) {
+    if (kb[i] !== ka[i]) return kb[i] - ka[i];
+  }
+  return 0;
+}
+
 const INSTALL_LITE_CATEGORIES = new Set(["mcp-server", "skill-pack", "hook-toolkit"]);
 const PERMISSIVE_LICENSES = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0"];
 

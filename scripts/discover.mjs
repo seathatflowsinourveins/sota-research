@@ -1,6 +1,6 @@
 import { computeFinalScore } from "./lib/blend.mjs";
 import { pathwayFromCategory } from "./lib/d3-pathway.mjs";
-import { routeDecision } from "./lib/decision.mjs";
+import { compareByDecision, routeDecision } from "./lib/decision.mjs";
 import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
 import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
@@ -553,6 +553,26 @@ export async function discover({
   // Phase 4: Stage-2 score + Codex consensus (R3: pass baseDir for the stack inventory +
   // the topic as scanIntent so gap-fit prioritizes against the user's stated objective).
   const phase4 = await phase4Score(phase3, category, { baseDir, scanIntent: topic });
+
+  // R6: rank by the engine verdict so scan-<ts>.md, decisions.jsonl, and the returned list are
+  // ordered by what the pipeline DECIDED (action → score → coverage → marginal value), not by
+  // batch order or source appearance-count. SCORE_FAILED candidates (no action) sort last.
+  phase4.sort((a, b) =>
+    compareByDecision(
+      {
+        action: a.action,
+        score: a.final_score,
+        coverage: a.score?.coverage,
+        marginalValue: a.marginalValue,
+      },
+      {
+        action: b.action,
+        score: b.final_score,
+        coverage: b.score?.coverage,
+        marginalValue: b.marginalValue,
+      },
+    ),
+  );
 
   // R1 (2026-05-29 convergence wiring): persist the decision envelopes + a human-readable
   // scan markdown so the self-improvement loop (outcome.mjs), audit trail, and comparison

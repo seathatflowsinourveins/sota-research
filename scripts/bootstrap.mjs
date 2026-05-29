@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { deriveDecisionInputs, discover } from "./discover.mjs";
 import { computeFinalScore } from "./lib/blend.mjs";
-import { routeDecision } from "./lib/decision.mjs";
+import { compareByDecision, routeDecision } from "./lib/decision.mjs";
 import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
 import { loadStackInventory } from "./lib/gap-fit.mjs";
 import { scoreRepo } from "./score.mjs";
@@ -178,13 +178,6 @@ export async function bootstrap({
     }
   });
 
-  // Sort by score (descending)
-  const sorted = Array.from(uniqueCandidates.values()).sort((a, b) => {
-    const aScore = a.score?.rubric_score || 0;
-    const bScore = b.score?.rubric_score || 0;
-    return bScore - aScore;
-  });
-
   // R3: load the stack inventory once for gap-fit gating (conservative {} fallback if absent).
   let inventory = {};
   try {
@@ -193,12 +186,28 @@ export async function bootstrap({
     inventory = {};
   }
 
-  // Decide every candidate ONCE via the single engine — reused by the markdown table AND
-  // the persisted decisions.jsonl record so the human view + audit log never diverge (R1).
-  const decided = sorted.map((c) => ({
-    candidate: c,
-    ...decideCandidate(c, inventory, topic || ""),
-  }));
+  // Decide every candidate ONCE via the single engine — reused by the markdown table AND the
+  // persisted decisions.jsonl record so the human view + audit log never diverge (R1).
+  // R6: rank by the ENGINE VERDICT (action tier → score → coverage → marginal value), NOT by
+  // raw rubric_score or source appearance-count.
+  const decided = Array.from(uniqueCandidates.values())
+    .map((c) => ({ candidate: c, ...decideCandidate(c, inventory, topic || "") }))
+    .sort((a, b) =>
+      compareByDecision(
+        {
+          action: a.decision.action,
+          score: a.finalScore,
+          coverage: a.candidate.score?.coverage,
+          marginalValue: a.di?.marginalValue,
+        },
+        {
+          action: b.decision.action,
+          score: b.finalScore,
+          coverage: b.candidate.score?.coverage,
+          marginalValue: b.di?.marginalValue,
+        },
+      ),
+    );
 
   // Write inventory/bootstrap-<ISO-date>.md
   const now = new Date();
@@ -211,9 +220,9 @@ export async function bootstrap({
     `## Summary`,
     `- Discovery topics: ${topicsToProcess.length}`,
     `- Named targets scored: ${NAMED_TARGETS.length}`,
-    `- Unique candidates: ${sorted.length}`,
+    `- Unique candidates: ${decided.length}`,
     "",
-    `## Recommendations (sorted by score)`,
+    `## Recommendations (ranked by decision verdict)`,
     `| Score | Repo | Category | Sources | Rationale |`,
     `|---|---|---|---|---|`,
     ...decided.map(({ candidate: c, finalScore, families, category, sourceCount, decision }) => {
@@ -259,10 +268,16 @@ export async function bootstrap({
   return {
     candidates_discovered: allCandidates.length,
     named_targets_scored: namedScores.length,
-    unique_candidates: sorted.length,
+    unique_candidates: decided.length,
     bootstrap_file: bootstrapFile,
     decisions_file: decisionsFile,
-    recommendations: sorted.slice(0, 20), // Top 20
+    // R6: recommendations carry the engine verdict (action/final_score) and are ranked by it,
+    // not by raw rubric_score — so callers + tests inspect what the pipeline actually decided.
+    recommendations: decided.slice(0, 20).map(({ candidate, decision, finalScore }) => ({
+      ...candidate,
+      action: decision.action,
+      final_score: finalScore,
+    })),
   };
 }
 

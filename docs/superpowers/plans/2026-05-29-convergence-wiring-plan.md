@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S3 (R2) — SKILL.md "engine is authoritative" + anti-improvisation contract; decision.md canonical decision-envelope section; scoring.md Stage-1 reconciled to SAFETY-hard/QUALITY-soft (fixed the doc drift that contradicted the soft gate). Doc-only; **188 tests pass.**
-- **Next slice:** S5 (R7 — OpenSSF Scorecard probe + probe_status, confidence-cap not reject).
+- **Last completed:** S4 (R6) — `compareByDecision`/`decisionRankKey`/`MARGINAL_VALUE_RANK` in decision.mjs; bootstrap + discover now rank by the ENGINE VERDICT (action tier→score→coverage→marginal value), not raw rubric_score; recommendations carry the verdict (action/final_score). **193 tests pass, Biome clean.** ← TIER 1 COMPLETE (R1,R3,R2,R6).
+- **Next slice:** S5 (R7 — OpenSSF Scorecard probe + probe_status, confidence-cap not reject) — TIER 2 begins.
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -39,11 +39,10 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] decision.md: added the canonical **decision-envelope** contract section. scoring.md: Stage-1 reconciled to SAFETY-hard / QUALITY-soft (was "6 hard gates → reject", which contradicted the soft gate + the operator's core ask).
 - [x] Envelope emission already exercised by `renderScanMarkdown` (S1). Doc-only; **188 tests pass.**
 
-### S4 — R6: rank Top-K by `(action, final_score, coverage, objective-relevance)`, forbid appearance-count (G6)
-- [ ] Read `scripts/bootstrap.mjs` (~145–194 sort), `scripts/discover.mjs` (phase2 triage / topK), `tests/bootstrap.test.mjs` (~216–223 sort assertions).
-- [ ] **Failing test:** a high-`rubric_score` but duplicative/low-relevance candidate ranks BELOW a relevant evidenced one; appearance-count/`family_count` is only a tie-breaker, never primary.
-- [ ] Impl: replace the `rubric_score` sort key with the tuple; **update the 2 bootstrap tests** that assert the old order; forbid `source_count`/`families` as primary key in `discover.mjs` + note in `decision.md` Triage + `SKILL.md`.
-- [ ] Verify green + commit `feat(rank): R6 rank by relevance x evidenced-quality, not appearance-count`.
+### S4 — R6: rank by the engine verdict, not appearance-count (G6) ✅ DONE
+- [x] Failing test → `tests/decision-rank.test.mjs` (5: tier-primary, score, coverage, marginal-value tie-breaks, SCORE_FAILED-safe).
+- [x] Impl: `decisionRankKey` + `compareByDecision` + `MARGINAL_VALUE_RANK` in decision.mjs (action tier → final score → coverage → marginal value; unknown action → -1, last). bootstrap decides-then-ranks; discover sorts phase4 by the verdict; recommendations annotated with action/final_score.
+- [x] Updated the bootstrap sort test (was rubric_score → now verdict tier then final_score). **193 tests pass, Biome clean.**
 
 ---
 

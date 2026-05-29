@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrap } from "../scripts/bootstrap.mjs";
+import { tierRank } from "../scripts/lib/decision.mjs";
 
 // Mock GraphQL response state (for discover/score calls within bootstrap)
 let mockGraphQLResponse = "{}";
@@ -213,15 +214,17 @@ describe("bootstrap.mjs", () => {
       );
     });
 
-    it("should sort candidates by score (descending)", async () => {
+    it("R6: ranks recommendations by the engine verdict (action tier, then final score)", async () => {
       const result = await bootstrap({ baseDir: tempDir });
 
-      if (result.recommendations.length > 1) {
-        // First recommendation should have >= score than second
-        for (let i = 0; i < result.recommendations.length - 1; i++) {
-          const current = result.recommendations[i].score?.rubric_score || 0;
-          const next = result.recommendations[i + 1].score?.rubric_score || 0;
-          expect(current).toBeGreaterThanOrEqual(next);
+      for (let i = 0; i < result.recommendations.length - 1; i++) {
+        const cur = result.recommendations[i];
+        const next = result.recommendations[i + 1];
+        const curTier = tierRank(cur.action);
+        const nextTier = tierRank(next.action);
+        expect(curTier).toBeGreaterThanOrEqual(nextTier); // higher action tier ranks first
+        if (curTier === nextTier) {
+          expect(cur.final_score ?? 0).toBeGreaterThanOrEqual(next.final_score ?? 0);
         }
       }
     });
