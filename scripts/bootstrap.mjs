@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { discover } from "./discover.mjs";
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
+import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { scoreRepo } from "./score.mjs";
 
 /**
@@ -148,6 +149,19 @@ export async function bootstrap({
     return bScore - aScore;
   });
 
+  // Load inventory once for gap-fit. Fail CLOSED — an empty fallback would silently
+  // disable objective gating (everything passes as servesObjective). config/stack-
+  // inventory.json is tracked, so a load failure is real misconfiguration: stop the
+  // scan loudly instead of mis-routing (CodeRabbit major).
+  let inventory;
+  try {
+    inventory = loadStackInventory(baseDir);
+  } catch (err) {
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
+  }
+
   // Write inventory/bootstrap-<ISO-date>.md
   const now = new Date();
   const dateStr = now.toISOString().split("T")[0];
@@ -182,6 +196,10 @@ export async function bootstrap({
         sourceTrust,
       });
 
+      // BUG A & B: Assess gap-fit and extract adoption pathway
+      const gapFit = assessGapFit(c, inventory, { scanIntent: category });
+      const adoptionPathway = c.score?.adoption_pathway || null;
+
       // Decision routing via the single decision engine (soft gate + multi-factor
       // floors + convergence ACTION cap by independent families).
       const families = sourceTrust?.family_count ?? sourceCount;
@@ -190,6 +208,11 @@ export async function bootstrap({
         families,
         category,
         dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+        // BUG A: Gap-fit overlay wiring
+        servesObjective: gapFit.servesObjective,
+        marginalValue: gapFit.marginalValue,
+        // BUG B: Adoption pathway (D3) veto
+        adoptionPathway,
       });
       const rationale = `Score ${finalScore.toFixed(1)} (${families} families) — ${action}`;
       return `| ${finalScore.toFixed(1)} | ${c.nameWithOwner} | ${category} | ${sourceCount} | ${rationale} |`;

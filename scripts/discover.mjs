@@ -1,5 +1,6 @@
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
+import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 import { assessProvenance } from "./lib/provenance.mjs";
 import { scoreRepo } from "./score.mjs";
@@ -120,6 +121,31 @@ async function semanticScholar(_topic, _limit = 25) {
 }
 
 /**
+ * BUG C: Source-family canonicalization (2026-05-28). GitHub source variants
+ * (github-search, github-advanced, github-topic, github-dependents) must collapse
+ * to a single family else convergence inflates.
+ */
+const FAMILY_CANON = {
+  "github-search": "github",
+  "github-advanced": "github",
+  "github-topic": "github",
+  "github-dependents": "github",
+  "github-graph": "github",
+  // Exa variants
+  "exa-web": "exa",
+  "exa-code": "exa",
+  "exa-deep": "exa",
+  // Tavily variants
+  "tavily-basic": "tavily",
+  "tavily-advanced": "tavily",
+  "tavily-research": "tavily",
+  // Jina variants
+  "jina-web": "jina",
+  "jina-arxiv": "jina",
+  "jina-research": "jina",
+};
+
+/**
  * NOVEL 1: Calculate source trust — structured object with diversity dimensions
  * Prevents gaming via multiple sources of the same family
  */
@@ -133,10 +159,15 @@ function calculateSourceTrust(sources) {
     };
   }
 
-  // Count independent source families (e.g., GitHub-derived sources count as 1 family)
+  // Count independent source families (e.g., GitHub-derived sources count as 1 family).
+  // Canonicalize variants so github-search/github-advanced/etc. all map to "github".
   const familyMap = new Map();
   sources.forEach((src) => {
-    const family = src.family || src.sources?.[0] || "unknown";
+    let family = src.family || src.sources?.[0] || "unknown";
+    // Apply canonicalization: if the family is in FAMILY_CANON, use its canonical form
+    if (FAMILY_CANON[family]) {
+      family = FAMILY_CANON[family];
+    }
     if (!familyMap.has(family)) familyMap.set(family, 0);
     familyMap.set(family, familyMap.get(family) + 1);
   });
@@ -361,10 +392,23 @@ async function hardFilterSingleRepo(candidate, scanCategory = null, retries = 3,
  * Implements stage-2 rubric + dimension scoring
  * NOTE: Codex consensus and subagent dispatch deferred (requires MCP)
  */
-async function phase4Score(candidates, category = "code-library") {
+async function phase4Score(candidates, category = "code-library", baseDir = process.cwd()) {
   const batchSize = 5; // Limit concurrency to respect API rate limits
 
   const scoredCandidates = [];
+
+  // BUG A: Load inventory once to avoid repeated file I/O
+  // Fail CLOSED — an empty fallback would silently disable objective gating in live
+  // scans. config/stack-inventory.json is tracked; a load failure is real misconfig,
+  // so stop loudly instead of mis-routing (CodeRabbit major).
+  let inventory;
+  try {
+    inventory = loadStackInventory(baseDir);
+  } catch (err) {
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
+  }
 
   // Process candidates in concurrent batches
   for (let i = 0; i < candidates.length; i += batchSize) {
@@ -390,13 +434,19 @@ async function phase4Score(candidates, category = "code-library") {
 
           // D10 provenance/trust overlay — computed from the GraphQL evidence scoreRepo
           // already fetched (stars/forks/commits), so the astroturf/fake-star gate fires in
-          // the LIVE pipeline, not only in unit tests (Codex 2026-05-28). gap-fit (D11) +
-          // adoption-pathway (D3) need candidate-level judge evidence → still backlog.
+          // the LIVE pipeline, not only in unit tests (Codex 2026-05-28).
           const provenance = assessProvenance({
             stars: scoreResult.evidence?.stars,
             forks: scoreResult.evidence?.forks,
             commits90d: scoreResult.evidence?.commits_90d,
           });
+
+          // BUG A & B: Assess gap-fit (D11) and extract adoption_pathway (D3) for the
+          // decision engine's objective-relevance gate and pathway veto.
+          const gapFit = assessGapFit(candidate, inventory, { scanIntent: category });
+          // Preserve the tri-state: undefined (unassessed) must NOT collapse to null, else
+          // the D3 pathway veto wrongly caps every candidate in a real run (Codex ship-gate).
+          const adoptionPathway = scoreResult.adoption_pathway;
 
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.
@@ -410,6 +460,11 @@ async function phase4Score(candidates, category = "code-library") {
             // fail-closed INSTALL gate is satisfied for legitimately-filtered candidates.
             safety: candidate.safety || {},
             provenance,
+            // BUG A: Gap-fit overlay wiring
+            servesObjective: gapFit.servesObjective,
+            marginalValue: gapFit.marginalValue,
+            // BUG B: Adoption pathway (D3) veto
+            adoptionPathway,
           });
 
           return {
@@ -448,6 +503,7 @@ export async function discover({
   limit = 30,
   budget: _budget = 10,
   sources: _sources = [],
+  baseDir = process.cwd(),
 }) {
   if (!topic) {
     throw new Error("topic required");
@@ -472,7 +528,7 @@ export async function discover({
   const phase3 = await phase3HardFilter(phase2, category);
 
   // Phase 4: Stage-2 score + Codex consensus
-  const phase4 = await phase4Score(phase3, category);
+  const phase4 = await phase4Score(phase3, category, baseDir);
 
   // Write inventory/scan-<ISO-ts>.md
   const timestamp = new Date().toISOString();
