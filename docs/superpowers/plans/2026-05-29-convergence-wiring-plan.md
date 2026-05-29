@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S7 (R13-scoped) — new `scripts/lib/rubric-contract.mjs` (`checkRubricContract`/`assertRubricContract` + curated `RUBRIC_PRODUCERS` map + `DECLARED_CONTRACT` + `KNOWN_BACKLOG`); asserts every declared dim/overlay/gate (D1–D11 + the decision.mjs gates) has a LIVE producer wired, EXCEPT the explicit backlog allowlist (honeypot active-malware, weight auto-tuning, live multi-source fan-out). No markdown parsed; NOT a load-time hard-fail (CI/test-only via `tests/rubric-contract.test.mjs`, which proves it BITES when a producer is removed). **221 tests pass, Biome clean.** ← TIER 2 COMPLETE (R7,R9,R4-safe,R13).
-- **Next slice:** TIER 3 (ADRs — no code) + close-out. Convergence-wiring code program (S1–S8) is DONE.
+- **Last completed:** TIER 3 + close-out — `docs/research/adr-2026-05-29-deferred-enhancements.md` (R15 KEEP + R5/R8/R10/R11/R12/R14 deferred with revive-preconditions); deep-audit-backlog reconciled (resolved items + GPT-5.5 corrections); memory updated. **221 tests pass, `biome check .` clean (45 files).**
+- **Next slice:** NONE — the v3.1 convergence-wiring program (S1–S8 + ADRs) is COMPLETE. Tier 1 (R1,R3,R2,R6) + Tier 2 (R7,R9,R4-safe,R13) shipped; Tier 3 recorded.
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -74,10 +74,10 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 
 ---
 
-## TIER 3 — record as ADRs (no speculative code)
-- [ ] Write `docs/research/adr-2026-05-29-deferred-enhancements.md`: R15 (KEEP deterministic family-convergence), R5 (Top-N matrix — build-not-borrow, deferred + revive-precondition: ≥2 same-category scored candidates routinely produced), R10 (evidence compression — revive when D3–D8 carry rich evidence), R8 (agreement scalar — revive when ≥2 live reviewers emit dimension vectors), R11 (groundedness via extending `evidenceCoverageGate`, not a module/prose), R12 (budget one-liner), R14 (registry refactor — revive on a 2nd live expert scorer). Each: verdict + why + the precondition that revives it.
+## TIER 3 — record as ADRs (no speculative code) ✅ DONE
+- [x] Wrote `docs/research/adr-2026-05-29-deferred-enhancements.md`: R15 KEEP (deterministic family-convergence) + R5/R8/R10/R11/R12/R14 deferred — each with verdict · why · the precondition that revives it + a cross-cutting still-open backlog (honeypot, live fan-out, weight-tuning).
 
 ## Close-out
-- [ ] Update `memory/deep-audit-backlog.md` (mark R1/R3/R6/R9 wiring as resolving the open Wave-1/2/3 items; note the workflow_dispatch + filename-drift corrections).
-- [ ] Update `MEMORY.md` + write a memory entry for the convergence program.
-- [ ] Final: `npm test` + `npm run lint` green; summarize diff; optional `/codex:review` on the shipped slices.
+- [x] Updated `memory/deep-audit-backlog.md` (resolved Wave-1/2/3 items via R1/R2/R3/R6/R7/R9/R13; recorded the workflow_dispatch + filename-drift corrections).
+- [x] Update `MEMORY.md` + write a memory entry for the convergence program.
+- [x] Final: **221 tests pass, `biome check .` clean (45 files)**. (`/codex:review` is user-triggered; the GPT-5.5 consensus gate already ran pre-build.)
