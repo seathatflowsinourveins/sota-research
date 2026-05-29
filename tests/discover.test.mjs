@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { promises as fsp } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discover } from "../scripts/discover.mjs";
 
@@ -263,6 +266,100 @@ describe("discover.mjs", () => {
 
       expect(mockCandidate.source_trust.type_weight).toBeGreaterThanOrEqual(0);
       expect(mockCandidate.source_trust.type_weight).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe("R1 — decision persistence", () => {
+    it("persists decisions.jsonl + a scan-*.md under baseDir when persist:true", async () => {
+      // Rich mock so scoreRepo() succeeds and a real decision envelope is produced.
+      setMockGraphQLResponse({
+        data: {
+          rateLimit: {
+            remaining: 4000,
+            resetAt: new Date(Date.now() + 3600000).toISOString(),
+            cost: 1,
+            nodeCount: 1,
+          },
+          search: {
+            repositoryCount: 50,
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                nameWithOwner: "owner/test-repo",
+                stargazerCount: 300,
+                pushedAt: "2025-01-01T00:00:00Z",
+                licenseInfo: { spdxId: "MIT" },
+                repositoryTopics: { nodes: [{ topic: { name: "mcp-server" } }] },
+                description: "A test repository",
+              },
+            ],
+          },
+          // Union shape: discover's phase-3 hard filter AND scoreRepo both read data.repository,
+          // so it must satisfy both (license/archived/readme for the gate; stars/forks/etc. for scoring).
+          repository: {
+            nameWithOwner: "owner/test-repo",
+            isArchived: false,
+            isDisabled: false,
+            isMirror: false,
+            licenseInfo: { spdxId: "MIT" },
+            stargazerCount: 300,
+            forkCount: 50,
+            watchers: { totalCount: 20 },
+            issues: { totalCount: 10 },
+            pullRequests: { totalCount: 30 },
+            defaultBranchRef: {
+              target: {
+                history: {
+                  totalCount: 200,
+                  nodes: Array(10).fill({ committedDate: "2025-01-01T00:00:00Z" }),
+                },
+              },
+            },
+            pushedAt: "2025-01-01T00:00:00Z",
+            releases: { nodes: [{ createdAt: "2025-01-01T00:00:00Z" }] },
+            collaborators: { totalCount: 5 },
+            languages: { nodes: [{ name: "JavaScript", size: 5000 }] },
+            repositoryTopics: { nodes: [{ topic: { name: "mcp-server" } }] },
+            object: { byteSize: 5000, text: "A test repository" },
+          },
+        },
+      });
+      const dir = join(tmpdir(), `sota-discover-${process.pid}-${Math.floor(performance.now())}`);
+      const result = await discover({
+        topic: "mcp-server",
+        category: "mcp-server",
+        limit: 10,
+        baseDir: dir,
+        persist: true,
+      });
+
+      expect(result.decisionsFile).toMatch(/inventory[\\/]decisions\.jsonl$/);
+      const content = await fsp.readFile(result.decisionsFile, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+      expect(JSON.parse(lines[0])).toHaveProperty("schema_version");
+
+      const files = await fsp.readdir(join(dir, "inventory"));
+      expect(files.some((f) => /^scan-.*\.md$/.test(f))).toBe(true);
+
+      await fsp.rm(dir, { recursive: true, force: true });
+    });
+
+    it("does NOT write when persist is false (default — library callers get no surprise side-effects)", async () => {
+      const dir = join(
+        tmpdir(),
+        `sota-discover-nopersist-${process.pid}-${Math.floor(performance.now())}`,
+      );
+      const result = await discover({ topic: "mcp-server", limit: 10, baseDir: dir });
+
+      expect(result.decisionsFile).toBeNull();
+      let inventoryExists = true;
+      try {
+        await fsp.access(join(dir, "inventory"));
+      } catch {
+        inventoryExists = false;
+      }
+      expect(inventoryExists).toBe(false);
     });
   });
 });

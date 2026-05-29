@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { discover } from "./discover.mjs";
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
+import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
 import { scoreRepo } from "./score.mjs";
 
 /**
@@ -54,6 +55,33 @@ function printDryRun(topicsToProcess, NAMED_TARGETS) {
 }
 
 /**
+ * Decide one candidate via the single decision engine. Used for BOTH the markdown table
+ * and the persisted decisions.jsonl record (R1), so the human view + audit log never diverge.
+ */
+function decideCandidate(c) {
+  const rubricScore = c.score?.rubric_score || 0;
+  const codexScore = c.score?.codex_score || 0;
+  const sourceCount = c.source_count || 1;
+  // Codex MAJOR fix: source_trust is top-level (not under .score) — read it there ONLY.
+  const sourceTrust = c.source_trust || null;
+  const category = c.score?.category || "unknown";
+  const finalScore = computeFinalScore({
+    rubric_score: rubricScore,
+    codex_score: codexScore,
+    source_count: sourceCount,
+    sourceTrust,
+  });
+  const families = sourceTrust?.family_count ?? sourceCount;
+  const decision = routeDecision({
+    score: finalScore,
+    families,
+    category,
+    dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+  });
+  return { finalScore, families, category, sourceCount, decision };
+}
+
+/**
  * Main bootstrap function
  */
 export async function bootstrap({
@@ -99,6 +127,8 @@ export async function bootstrap({
       category: t.category,
       limit: 30,
       budget: 10,
+      baseDir,
+      persist: false, // bootstrap persists the unified merged+sorted set once (avoids dup)
     }).catch((err) => {
       console.warn(`Discovery failed for topic ${t.topic}: ${err.message}`);
       return { candidates: [] };
@@ -148,6 +178,10 @@ export async function bootstrap({
     return bScore - aScore;
   });
 
+  // Decide every candidate ONCE via the single engine — reused by the markdown table AND
+  // the persisted decisions.jsonl record so the human view + audit log never diverge (R1).
+  const decided = sorted.map((c) => ({ candidate: c, ...decideCandidate(c) }));
+
   // Write inventory/bootstrap-<ISO-date>.md
   const now = new Date();
   const dateStr = now.toISOString().split("T")[0];
@@ -164,34 +198,8 @@ export async function bootstrap({
     `## Recommendations (sorted by score)`,
     `| Score | Repo | Category | Sources | Rationale |`,
     `|---|---|---|---|---|`,
-    ...sorted.map((c) => {
-      const rubricScore = c.score?.rubric_score || 0;
-      const codexScore = c.score?.codex_score || 0;
-      const sourceCount = c.source_count || 1;
-      // Codex MAJOR fix: discovery stores source_trust top-level (not under .score),
-      // so convergence caps were being bypassed. Read top-level ONLY (no .score fallback,
-      // which would mask the wrong-location bug — Codex re-gate).
-      const sourceTrust = c.source_trust || null;
-      const category = c.score?.category || "unknown";
-
-      // Use computeFinalScore to get blended score with post-blend caps (B-4)
-      const finalScore = computeFinalScore({
-        rubric_score: rubricScore,
-        codex_score: codexScore,
-        source_count: sourceCount,
-        sourceTrust,
-      });
-
-      // Decision routing via the single decision engine (soft gate + multi-factor
-      // floors + convergence ACTION cap by independent families).
-      const families = sourceTrust?.family_count ?? sourceCount;
-      const { action } = routeDecision({
-        score: finalScore,
-        families,
-        category,
-        dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
-      });
-      const rationale = `Score ${finalScore.toFixed(1)} (${families} families) — ${action}`;
+    ...decided.map(({ candidate: c, finalScore, families, category, sourceCount, decision }) => {
+      const rationale = `Score ${finalScore.toFixed(1)} (${families} families) — ${decision.action}`;
       return `| ${finalScore.toFixed(1)} | ${c.nameWithOwner} | ${category} | ${sourceCount} | ${rationale} |`;
     }),
     "",
@@ -204,11 +212,35 @@ export async function bootstrap({
     console.warn(`Could not write bootstrap file: ${err.message}`);
   }
 
+  // R1: persist the decision envelopes + a scan-<ts>.md (the filename the SOTA-scan PR body
+  // references). discover() was called with persist:false above, so each candidate is logged
+  // exactly once, here, from the unified merged set.
+  const decisionRecords = decided.map(({ candidate: c, finalScore, category, decision }) =>
+    buildDecisionRecord({
+      repo: c.nameWithOwner,
+      category,
+      finalScore,
+      decision,
+      dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+      coverage: c.score?.coverage ?? null,
+    }),
+  );
+  let decisionsFile = null;
+  try {
+    decisionsFile = appendDecisions(decisionRecords, { baseDir }).file;
+    const ts = now.toISOString();
+    const scanFile = `inventory/scan-${ts.split("T")[0]}-${ts.split("T")[1].split(".")[0].replace(/:/g, "")}.md`;
+    writeScanMarkdown(decisionRecords, { baseDir, scanFile, topic: topic || "bootstrap" });
+  } catch (err) {
+    console.warn(`Could not persist decisions: ${err.message}`);
+  }
+
   return {
     candidates_discovered: allCandidates.length,
     named_targets_scored: namedScores.length,
     unique_candidates: sorted.length,
     bootstrap_file: bootstrapFile,
+    decisions_file: decisionsFile,
     recommendations: sorted.slice(0, 20), // Top 20
   };
 }

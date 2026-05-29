@@ -1,5 +1,6 @@
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
+import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 import { assessProvenance } from "./lib/provenance.mjs";
 import { scoreRepo } from "./score.mjs";
@@ -418,6 +419,7 @@ async function phase4Score(candidates, category = "code-library") {
             final_score: finalScore,
             action: decision.action,
             decision,
+            provenance_trustTier: provenance?.trustTier ?? null,
             phase4_status: "SCORED",
           };
         } catch (err) {
@@ -448,6 +450,8 @@ export async function discover({
   limit = 30,
   budget: _budget = 10,
   sources: _sources = [],
+  baseDir = process.cwd(),
+  persist = false, // explicit opt-in: the CLI entrypoint persists; library callers don't write by default
 }) {
   if (!topic) {
     throw new Error("topic required");
@@ -474,15 +478,41 @@ export async function discover({
   // Phase 4: Stage-2 score + Codex consensus
   const phase4 = await phase4Score(phase3, category);
 
-  // Write inventory/scan-<ISO-ts>.md
+  // R1 (2026-05-29 convergence wiring): persist the decision envelopes + a human-readable
+  // scan markdown so the self-improvement loop (outcome.mjs), audit trail, and comparison
+  // corpus stop being data-starved. The SAFETY/QUALITY soft-gate verdict already lives on
+  // each candidate.decision; this just makes it durable. baseDir keeps tests + CI isolated.
   const timestamp = new Date().toISOString();
   const scanFileName = `inventory/scan-${timestamp.split("T")[0]}-${timestamp.split("T")[1].split(".")[0].replace(/:/g, "")}.md`;
 
-  // TODO: Write scan output file with ranked recommendations
+  const decisions = phase4
+    .filter((c) => c?.decision?.action)
+    .map((c) =>
+      buildDecisionRecord({
+        repo: c.nameWithOwner,
+        category: c.score?.category || category,
+        finalScore: c.final_score,
+        decision: c.decision,
+        dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+        coverage: c.score?.coverage ?? null,
+        provenanceTrustTier: c.provenance_trustTier ?? null,
+        servesObjective: c.servesObjective ?? null,
+        marginalValue: c.marginalValue ?? null,
+        adoptionPathway: c.adoptionPathway ?? null,
+      }),
+    );
+
+  let decisionsFile = null;
+  if (persist) {
+    decisionsFile = appendDecisions(decisions, { baseDir }).file;
+    writeScanMarkdown(decisions, { baseDir, scanFile: scanFileName, topic });
+  }
 
   return {
     candidates: phase4,
     scanFile: scanFileName,
+    decisionsFile,
+    decisions,
   };
 }
 
@@ -506,7 +536,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  discover({ topic, category, limit, budget }).catch((err) => {
+  discover({ topic, category, limit, budget, persist: true }).catch((err) => {
     console.error(err.message);
     process.exit(1);
   });

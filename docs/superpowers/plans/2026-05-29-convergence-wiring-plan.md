@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** docs (convergence grounding + this plan) written.
-- **Next slice:** S1 (R1 — persist decisions.jsonl).
+- **Last completed:** S1 (R1) — `scripts/lib/decision-log.mjs` + wired into discover.mjs/bootstrap.mjs (persist `decisions.jsonl` + `scan-<ts>.md`; `baseDir` threaded; CLI opt-in `persist:true`; the `scan-*.md` write reconciles the PR-body drift). **180 tests pass, Biome clean.**
+- **Next slice:** S2 (R3 — feed gap-fit + adoption-pathway into phase4Score).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -21,11 +21,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 
 ## TIER 1 — keystone wiring
 
-### S1 — R1: persist `decisions.jsonl` + `scan-<ts>.md` (G5)
-- [ ] Read `scripts/discover.mjs` (~440–490), `scripts/bootstrap.mjs` (~140–205), `scripts/lib/atomic-write.mjs`, `scripts/outcome.mjs` (~20–34), `docs/protocols/decision.md` (decisions.jsonl schema ~144-149).
-- [ ] **Failing test** (`tests/persist-decisions.test.mjs` or extend `tests/discover.test.mjs`): calling the persist step appends ONE JSON line per candidate with the decision envelope `{ts, repo, category, final_score, action, families, dims, coverage, override_applied, trace, review_required, servesObjective, marginalValue, adoptionPathway, provenance_trustTier, schema_version, rubric_version}`; idempotent atomic append; `outcome.mjs` can read it.
-- [ ] Impl: replace `discover.mjs` TODO (~:481) with atomic append via `atomic-write.mjs`; same in `bootstrap.mjs`; write human-readable `scan-<ts>.md`. **Reconcile filename drift:** make bootstrap's output + the PR-body reference agree (write the `inventory/scan-*.md` the PR expects, or update the workflow body). `baseDir` param so tests write to tmp.
-- [ ] Verify green + commit `feat(persist): R1 write decisions.jsonl + scan markdown (un-starve outcome loop)`.
+### S1 — R1: persist `decisions.jsonl` + `scan-<ts>.md` (G5) ✅ DONE
+- [x] Read discover/bootstrap/atomic-write/outcome + decision.md schema.
+- [x] Failing test → `tests/decision-log.test.mjs` (7 unit) + integration assertions in discover/bootstrap tests.
+- [x] Impl: new `scripts/lib/decision-log.mjs` (`buildDecisionRecord`/`appendDecisions`/`renderScanMarkdown`/`writeScanMarkdown`); wired into `discover.mjs` (`baseDir`+`persist`, CLI opts in) + `bootstrap.mjs` (`decideCandidate` once for table+log; `persist:false` on its discover calls to log once). The `scan-*.md` write reconciles the PR-body drift.
+- [x] Verified: **180 tests pass, Biome clean.** Record = backward-compatible superset of the documented schema.
 
 ### S2 — R3: feed gap-fit (D11) + adoption-pathway (D3) into `phase4Score` (G3)
 - [ ] Read `scripts/discover.mjs` `phase4Score` (~364–440), `scripts/lib/gap-fit.mjs` (`assessGapFit`, `loadStackInventory`), `scripts/lib/d3-pathway.mjs` (`normalizePathway`), `config/stack-inventory.json`.

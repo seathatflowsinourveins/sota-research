@@ -256,6 +256,27 @@ describe("bootstrap.mjs", () => {
       expect(result.recommendations).toBeDefined();
       expect(result.recommendations.length).toBeLessThanOrEqual(20);
     });
+
+    it("R1: persists decisions.jsonl (each line a parseable record the outcome loop reads)", async () => {
+      const result = await bootstrap({ baseDir: tempDir });
+
+      expect(result.decisions_file).toMatch(/inventory[\\/]decisions\.jsonl$/);
+      const content = await fs.readFile(result.decisions_file, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+      const rec = JSON.parse(lines[0]); // outcome.mjs does exactly this
+      expect(rec).toHaveProperty("ts");
+      expect(rec).toHaveProperty("repo");
+      expect(rec).toHaveProperty("action");
+      expect(rec).toHaveProperty("schema_version");
+    });
+
+    it("R1: writes a scan-*.md (reconciles the PR-body drift that referenced inventory/scan-*.md)", async () => {
+      await bootstrap({ baseDir: tempDir });
+
+      const files = await fs.readdir(join(tempDir, "inventory"));
+      expect(files.some((f) => /^scan-.*\.md$/.test(f))).toBe(true);
+    });
   });
 
   it("should handle empty discovery results gracefully", async () => {
