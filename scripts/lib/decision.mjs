@@ -269,6 +269,8 @@ export function objectiveRelevanceGate(
  * @param {object} input.quality - soft quality booleans
  * @param {object} input.security- {openCritical?, mitigatedOptInRisk?}
  * @param {string} input.rubricVersion - tie the decision to a rubric version (audit)
+ * @param {object} input.provenance - D10 trust overlay from assessProvenance(): {trustTier, flags, actionCap}.
+ *                                     'fraud' -> REJECT; 'suspect' -> cap action tier + human review.
  */
 export function routeDecision({
   score = 0,
@@ -282,6 +284,7 @@ export function routeDecision({
   installClaimsRefreshed = true,
   servesObjective = true,
   marginalValue = "medium",
+  provenance = null,
   rubricVersion = null,
 } = {}) {
   const trace = [];
@@ -319,7 +322,26 @@ export function routeDecision({
     trace.push("safety:UNVERIFIED");
   }
 
+  // 1b. Provenance fraud — INDEPENDENTLY confirmed only (malware / impersonation /
+  //     purchased-star fraud) → REJECT, like a hard safety veto (Codex risk-resolution #4:
+  //     soft astroturf signals never auto-reject; only confirmed fraud does).
+  if (provenance && provenance.trustTier === "fraud") {
+    return {
+      action: "REJECT",
+      reason: "provenance-fraud",
+      flags: Array.isArray(provenance.flags) ? provenance.flags : [],
+      review_required: false,
+      override_applied: [],
+      families,
+      trace: [`provenance-fraud:${provenance.rationale || "confirmed"}`],
+      rubricVersion,
+    };
+  }
+
   const flags = qualityFlags(quality);
+  if (provenance && Array.isArray(provenance.flags) && provenance.trustTier !== "fraud") {
+    flags.push(...provenance.flags);
+  }
 
   // Derive security from dated, status-tagged findings when provided (FIXED/stale
   // findings discounted — the systemic stale-evidence-bias fix). Explicit `security`
@@ -355,6 +377,15 @@ export function routeDecision({
     trace.push(`action-cap:${tier}(families=${families})`);
   }
 
+  // 4b. provenance overlay — a "suspect" trust verdict (converging astroturf signals)
+  //     caps the action tier and escalates to human review; it NEVER auto-rejects.
+  if (provenance && provenance.trustTier === "suspect" && provenance.actionCap) {
+    if (tierRank(tier) > tierRank(provenance.actionCap)) {
+      tier = capTier(tier, provenance.actionCap);
+      trace.push(`provenance-cap:${tier}(${provenance.rationale || "suspect astroturf signals"})`);
+    }
+  }
+
   // 5. late security demotion (scoped, from current-status-weighted evidence)
   const dem = lateSecurityDemotion(tier, sec);
   if (dem.tier !== tier) {
@@ -383,8 +414,13 @@ export function routeDecision({
     trace.push("safety-unverified→STUDY (fail-closed)");
   }
 
-  // INSTALL tiers always require human gate (convergence-cycle Phase 1)
-  const review_required = review || tier === "INSTALL-FULL" || tier === "INSTALL-LITE";
+  // INSTALL tiers always require human gate (convergence-cycle Phase 1); a "suspect"
+  // provenance verdict also escalates to human review even after the cap.
+  const review_required =
+    review ||
+    tier === "INSTALL-FULL" ||
+    tier === "INSTALL-LITE" ||
+    (provenance != null && provenance.trustTier === "suspect");
 
   return {
     action: tier,

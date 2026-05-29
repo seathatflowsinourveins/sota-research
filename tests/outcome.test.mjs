@@ -101,9 +101,12 @@ describe("outcome.mjs", () => {
 
       const result = await reviewOutcomes({ ageDays: 30, baseDir: tempDir });
 
-      // If outcomes are loaded, weight tuning should be suggested
+      // Weight tuning is DISABLED pending calibration (Codex 2026-05-28): with 20+
+      // outcomes we surface the suggestion for MANUAL review, but never auto-trigger
+      // tuning on uncalibrated/placeholder accuracy.
       if (result.total_outcomes >= 20) {
-        expect(result.weight_tuning_suggestion.triggered).toBe(true);
+        expect(result.weight_tuning_suggestion.triggered).toBe(false);
+        expect(result.weight_tuning_suggestion.calibrated).toBe(false);
       }
     });
 
@@ -125,11 +128,10 @@ describe("outcome.mjs", () => {
 
       const result = await reviewOutcomes({ ageDays: 30, baseDir: tempDir });
 
-      if (result.weight_tuning_suggestion.triggered) {
-        expect(result.weight_tuning_suggestion.dimension_accuracy).toBeDefined();
-        expect(result.weight_tuning_suggestion.dimension_accuracy).toHaveProperty("D1");
-        expect(result.weight_tuning_suggestion.dimension_accuracy).toHaveProperty("D8");
-      }
+      // Until correlation is implemented + calibrated, accuracy is null (NOT fabricated
+      // D1..D8 numbers) and tuning stays disabled (Codex 2026-05-28).
+      expect(result.weight_tuning_suggestion.triggered).toBe(false);
+      expect(result.weight_tuning_suggestion.dimension_accuracy).toBeNull();
     });
   });
 

@@ -277,6 +277,28 @@ then D9 is supplied as agent evidence.
 
 ---
 
+### D10 Provenance / D11 Gap-Fit — decision-layer mechanisms (NOT weighted dimensions)
+
+**Added v3.0 (2026-05-28; Codex GPT-5.5 consensus).** D10 and D11 are deliberately NOT part of the
+weighted D1–D8 sum — weighting them would double-count (D10 ⊂ D1/D6/D8 popularity-trust; D11 ⊂ D7
+novelty). Instead they reuse existing machinery:
+- **D10 Provenance/Trust** is an OVERLAY (like D9): `scripts/lib/provenance.mjs` flags astroturf /
+  purchased-star signals (fork:star ratio, high-stars-low-activity, single-contributor, star-spike);
+  `routeDecision` caps the action tier on "suspect" + escalates to human review; only INDEPENDENTLY
+  CONFIRMED fraud/malware/impersonation → REJECT. Thresholds are CONFIGURABLE DEFAULTS, not facts.
+- **D11 Gap-Fit/Marginal-Lift** feeds the existing `objectiveRelevanceGate`: `scripts/lib/gap-fit.mjs`
+  scores a candidate against `config/stack-inventory.json` (gap-fill / enhance / duplicate / out-of-scope)
+  → `servesObjective` + `marginalValue`, capping installs that merely duplicate the stack.
+
+Full rationale + the deep-detector/calibration BACKLOG: `docs/research/architecture-v3-convergence-2026-05-28.md`.
+
+**Citation corrections (v3.0):** the fake-star method is informed by *StarScout* — "Six Million
+(Suspected) Fake Stars in GitHub" (arXiv:2412.13459, ICSE 2026, CMU); G-Eval is arXiv:2303.16634. The
+numeric thresholds in provenance / D3 ladder / gap-fit are configurable defaults needing local
+calibration, never asserted as empirical fact.
+
+---
+
 ### Evidence contract (decision-grade scoring)
 
 **Added 2026-05-28** (Codex P0: scoring was "optimistic theater" while D3–D8 were faked `=5`). Every
@@ -487,19 +509,22 @@ For package-ecosystem candidates (npm, PyPI), overlay a supply-chain risk check 
 publisher_risk = single_publisher_count × log10(weekly_downloads + 1)
 ```
 
-**Thresholds:**
-- publisher_risk > 50,000 → **RED flag**, cap D6 at 6, note in scan output
-- publisher_risk 20,000–50,000 → **YELLOW flag**, cap D6 at 7, monitor
-- publisher_risk < 20,000 → **GREEN**, no cap
+**Thresholds** — corrected 2026-05-28 (Codex GPT-5.5): the prior 20,000 / 50,000 cutoffs were
+UNREACHABLE because `log10(weekly_downloads)` maxes near 7, so the gate never fired. Thresholds
+are now on the log-scaled `publisher_risk`. `single_publisher_count` is a 0/1 flag (1 when a
+single npm/PyPI publisher controls releases):
+- publisher_risk >= 6.0  (single publisher, ~1M+ weekly downloads) → **RED flag**, cap D6 at 6, note in scan output
+- publisher_risk 5.0-6.0 (single publisher, ~100k-1M downloads) → **YELLOW flag**, cap D6 at 7, monitor
+- publisher_risk < 5.0   (multi-publisher, or <~100k downloads) → **GREEN**, no cap
 
 **Example:** npm package with 1 publisher, 100k weekly downloads:
 ```
-risk = 1 × log10(100001) = 1 × 5.0 = 5.0 (GREEN)
+risk = 1 × log10(100001) = 5.0 → YELLOW (single-publisher, monitor; cap D6 at 7)
 ```
 
 axios case (compromised): 1 publisher, 5M weekly downloads:
 ```
-risk = 1 × log10(5000001) = 1 × 6.7 = 6.7 (RED) → cap D6 at 6, WATCH recommendation
+risk = 1 × log10(5000001) = 6.7 → RED → cap D6 at 6, WATCH recommendation
 ```
 
 ---

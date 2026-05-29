@@ -66,6 +66,11 @@ export async function reviewOutcomes({ ageDays = 30, baseDir = process.cwd() }) 
       action: decision.action,
       artifact_present: present,
       age_days: ageDays,
+      review_window: ageDays, // 30 | 60 | 90
+      // Ground truth for tuning is the HUMAN value/regret label (Codex risk-resolution #3);
+      // usage telemetry is a trigger/signal, NOT ground truth on its own. Both null until captured.
+      value_label: decision.value_label ?? null, // 'valuable' | 'neutral' | 'regret' | null
+      usage_telemetry: decision.usage_telemetry ?? null, // { invocations, last_used } | null
     };
     newOutcomes.push(outcome);
   }
@@ -81,16 +86,21 @@ export async function reviewOutcomes({ ageDays = 30, baseDir = process.cwd() }) 
     console.warn(`Could not write outcomes: ${e.message}`);
   }
 
-  // When 20+ outcomes accumulated, suggest weight tuning
+  // When 20+ outcomes accumulate, flag for MANUAL review only. Automatic weight tuning
+  // stays DISABLED until dimension-accuracy correlation is implemented and calibrated
+  // against labeled outcomes (Codex GPT-5.5 2026-05-28: "placeholder accuracy values must
+  // never influence tuning"; "no automatic weight changes").
   if (allOutcomes.length >= 20) {
-    const dimensionAccuracy = computeDimensionAccuracy(allOutcomes);
+    const accuracy = computeDimensionAccuracy(allOutcomes);
     return {
       outcomes_logged: newOutcomes.length,
       total_outcomes: allOutcomes.length,
       weight_tuning_suggestion: {
-        triggered: true,
-        dimension_accuracy: dimensionAccuracy,
-        message: "Consider tuning category weights based on dimension predictive accuracy",
+        triggered: false,
+        calibrated: accuracy.calibrated,
+        dimension_accuracy: accuracy.accuracy,
+        message:
+          "Enough outcomes to REVIEW manually. Automatic weight tuning is disabled until dimension-accuracy correlation is implemented + calibrated against labeled outcomes.",
       },
     };
   }
@@ -107,20 +117,15 @@ export async function reviewOutcomes({ ageDays = 30, baseDir = process.cwd() }) 
  * Calculate correlation between dim_i_score and was_actually_useful
  */
 function computeDimensionAccuracy(_outcomes) {
-  // TODO: Implement correlation calculation
-  // For each outcome, lookup original score + decision
-  // Compute correlation(D1..D8 scores, artifact_present @ 30/60/90 days)
-
-  // PLACEHOLDER: return mock accuracy scores
+  // Correlation(D1..D8 score, realized usefulness @ 30/60/90d) needs labeled outcomes +
+  // holdout validation — that is BACKLOG. Until implemented AND calibrated, this returns
+  // NO numbers: placeholder/mock accuracy must NEVER influence weight tuning (Codex
+  // GPT-5.5 2026-05-28). Emitting fake correlations here previously risked auto-tuning
+  // rubric weights against invented data.
   return {
-    D1: 0.75,
-    D2: 0.82,
-    D3: 0.68,
-    D4: 0.8,
-    D5: 0.72,
-    D6: 0.85,
-    D7: 0.65,
-    D8: 0.78,
+    calibrated: false,
+    accuracy: null,
+    note: "dimension-accuracy correlation not yet implemented; needs labeled outcomes + holdout (BACKLOG)",
   };
 }
 

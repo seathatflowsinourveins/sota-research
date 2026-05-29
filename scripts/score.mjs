@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { d3FromPathway } from "./lib/d3-pathway.mjs";
+import { dimensionValue } from "./lib/evidence.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 
 /**
@@ -164,10 +166,19 @@ function computeDimensions(rawData, providedDims = {}) {
   const D2 = Math.min(10, (commits + prs) / 10);
 
   const dims = { D1, D2 };
+  // D3-D8 accept either a bare number or a judge evidence object {value,source,...};
+  // a missing/non-finite value stays null (evidence contract — never a fabricated constant).
   for (const k of ["D3", "D4", "D5", "D6", "D7", "D8"]) {
-    dims[k] = Number.isFinite(providedDims[k]) ? providedDims[k] : null;
+    dims[k] = dimensionValue(providedDims[k]);
   }
-  const D9 = Number.isFinite(providedDims.D9) ? providedDims.D9 : null;
+  // D3 (Claude-Code fit) fallback: if not supplied directly but a runtime pathway +
+  // integration evidence are, derive the evidence-CAPPED pathway sub-score (the ladder
+  // is a STARTING value capped by working-integration evidence — Codex 2026-05-28).
+  if (dims.D3 == null && providedDims.D3pathway) {
+    const { pathway, evidence } = providedDims.D3pathway;
+    dims.D3 = d3FromPathway(pathway, evidence);
+  }
+  const D9 = dimensionValue(providedDims.D9);
   return { dims, D9 };
 }
 
