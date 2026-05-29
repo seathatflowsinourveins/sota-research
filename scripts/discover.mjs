@@ -1,6 +1,8 @@
 import { computeFinalScore } from "./lib/blend.mjs";
+import { pathwayFromCategory } from "./lib/d3-pathway.mjs";
 import { routeDecision } from "./lib/decision.mjs";
 import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
+import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 import { assessProvenance } from "./lib/provenance.mjs";
 import { scoreRepo } from "./score.mjs";
@@ -358,12 +360,71 @@ async function hardFilterSingleRepo(candidate, scanCategory = null, retries = 3,
 }
 
 /**
+ * R3: derive the objective-relevance + adoption-pathway inputs the decision engine already
+ * consumes but never received in the live pipeline. Maps a candidate against the stack
+ * inventory (gap-fit → servesObjective / marginalValue) and its category → adoption pathway.
+ * Pure + exported so bootstrap.mjs gates identically (no engine<->workflow drift).
+ *
+ * @param {object} candidate - { nameWithOwner, hint?, category?, score?, fillsGapId?, duplicatesOf?, ... }
+ * @param {object} inventory - parsed config/stack-inventory.json (or {} when unavailable)
+ * @param {object} [opts] - { scanIntent?, category? }
+ * @returns {{servesObjective:boolean, marginalValue:string, adoptionPathway:(string|null), gapFit:object}}
+ */
+export function deriveDecisionInputs(
+  candidate = {},
+  inventory = {},
+  { scanIntent = "", category = null } = {},
+) {
+  const keywords = [
+    ...(candidate.hint?.topics || []),
+    ...String(candidate.hint?.description || "")
+      .split(/\s+/)
+      .filter(Boolean),
+  ];
+  const gapFit = assessGapFit(
+    {
+      name: candidate.nameWithOwner,
+      keywords,
+      fillsGapId: candidate.fillsGapId,
+      duplicatesOf: candidate.duplicatesOf,
+      outOfScope: candidate.outOfScope,
+      enhancesLayer: candidate.enhancesLayer,
+      betterThanInstalled: candidate.betterThanInstalled,
+    },
+    inventory,
+    { scanIntent },
+  );
+  const adoptionPathway = pathwayFromCategory(
+    category || candidate.category || candidate.score?.category,
+  );
+  return {
+    servesObjective: gapFit.servesObjective,
+    marginalValue: gapFit.marginalValue,
+    adoptionPathway,
+    gapFit,
+  };
+}
+
+/**
  * BLOCKER B-5 FIX: Phase 4: Score candidates using scoreRepo helper
  * Implements stage-2 rubric + dimension scoring
  * NOTE: Codex consensus and subagent dispatch deferred (requires MCP)
  */
-async function phase4Score(candidates, category = "code-library") {
+async function phase4Score(
+  candidates,
+  category = "code-library",
+  { baseDir = process.cwd(), scanIntent = "" } = {},
+) {
   const batchSize = 5; // Limit concurrency to respect API rate limits
+
+  // R3: load the stack inventory ONCE so gap-fit (D11) feeds objectiveRelevanceGate live.
+  // Missing/unreadable inventory → {} → gap-fit's conservative low-marginal-value fallback.
+  let inventory = {};
+  try {
+    inventory = loadStackInventory(baseDir);
+  } catch {
+    inventory = {};
+  }
 
   const scoredCandidates = [];
 
@@ -399,6 +460,14 @@ async function phase4Score(candidates, category = "code-library") {
             commits90d: scoreResult.evidence?.commits_90d,
           });
 
+          // R3: derive the objective-relevance + adoption-pathway inputs the engine already
+          // consumes but never received — flipping objectiveRelevanceGate (gap-fit / marginal
+          // value) and d3PathwayVeto ("degree of adaptness") from no-ops to live gates.
+          const di = deriveDecisionInputs(candidate, inventory, {
+            scanIntent,
+            category: scoreResult.category || category,
+          });
+
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.
           const decision = routeDecision({
@@ -411,6 +480,9 @@ async function phase4Score(candidates, category = "code-library") {
             // fail-closed INSTALL gate is satisfied for legitimately-filtered candidates.
             safety: candidate.safety || {},
             provenance,
+            servesObjective: di.servesObjective,
+            marginalValue: di.marginalValue,
+            adoptionPathway: di.adoptionPathway,
           });
 
           return {
@@ -420,6 +492,9 @@ async function phase4Score(candidates, category = "code-library") {
             action: decision.action,
             decision,
             provenance_trustTier: provenance?.trustTier ?? null,
+            servesObjective: di.servesObjective,
+            marginalValue: di.marginalValue,
+            adoptionPathway: di.adoptionPathway,
             phase4_status: "SCORED",
           };
         } catch (err) {
@@ -475,8 +550,9 @@ export async function discover({
   // Phase 3: Hard-filter batch
   const phase3 = await phase3HardFilter(phase2, category);
 
-  // Phase 4: Stage-2 score + Codex consensus
-  const phase4 = await phase4Score(phase3, category);
+  // Phase 4: Stage-2 score + Codex consensus (R3: pass baseDir for the stack inventory +
+  // the topic as scanIntent so gap-fit prioritizes against the user's stated objective).
+  const phase4 = await phase4Score(phase3, category, { baseDir, scanIntent: topic });
 
   // R1 (2026-05-29 convergence wiring): persist the decision envelopes + a human-readable
   // scan markdown so the self-improvement loop (outcome.mjs), audit trail, and comparison

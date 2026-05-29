@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S1 (R1) — `scripts/lib/decision-log.mjs` + wired into discover.mjs/bootstrap.mjs (persist `decisions.jsonl` + `scan-<ts>.md`; `baseDir` threaded; CLI opt-in `persist:true`; the `scan-*.md` write reconciles the PR-body drift). **180 tests pass, Biome clean.**
-- **Next slice:** S2 (R3 — feed gap-fit + adoption-pathway into phase4Score).
+- **Last completed:** S2 (R3) — `pathwayFromCategory` (category→runtime surface) + exported `deriveDecisionInputs` (gap-fit + pathway) wired into discover's `phase4Score` AND bootstrap's `decideCandidate`; `objectiveRelevanceGate` + `d3PathwayVeto` now run LIVE (no longer no-ops); values persisted in the R1 record. **188 tests pass, Biome clean.**
+- **Next slice:** S3 (R2 — bind SKILL.md/protocols to the routeDecision decision-envelope + anti-improvisation contract).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -27,11 +27,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] Impl: new `scripts/lib/decision-log.mjs` (`buildDecisionRecord`/`appendDecisions`/`renderScanMarkdown`/`writeScanMarkdown`); wired into `discover.mjs` (`baseDir`+`persist`, CLI opts in) + `bootstrap.mjs` (`decideCandidate` once for table+log; `persist:false` on its discover calls to log once). The `scan-*.md` write reconciles the PR-body drift.
 - [x] Verified: **180 tests pass, Biome clean.** Record = backward-compatible superset of the documented schema.
 
-### S2 — R3: feed gap-fit (D11) + adoption-pathway (D3) into `phase4Score` (G3)
-- [ ] Read `scripts/discover.mjs` `phase4Score` (~364–440), `scripts/lib/gap-fit.mjs` (`assessGapFit`, `loadStackInventory`), `scripts/lib/d3-pathway.mjs` (`normalizePathway`), `config/stack-inventory.json`.
-- [ ] **Failing test** (`tests/discover.test.mjs` / `tests/decision-routing.test.mjs`): a duplicative candidate (`marginalValue` low) with tier>STUDY is capped to STUDY by `objectiveRelevanceGate`; a candidate with no adoption pathway + INSTALL tier is capped by `d3PathwayVeto` — i.e. the gates are no longer no-ops.
-- [ ] Impl: in `phase4Score`, call `assessGapFit(candidate, loadStackInventory(baseDir), {scanIntent: topic})`; derive `adoptionPathway` from structured signals already fetched (category + manifest/skill markers via `normalizePathway`); pass `{servesObjective, marginalValue, adoptionPathway}` into `routeDecision`. Honor the null/evidence contract (unknown pathway → undefined, not fabricated).
-- [ ] Verify green + commit `feat(decision): R3 wire gap-fit + adoption-pathway into phase4 (flip inert gates live)`.
+### S2 — R3: feed gap-fit (D11) + adoption-pathway (D3) into `phase4Score` (G3) ✅ DONE
+- [x] Read phase4Score + gap-fit + d3-pathway + stack-inventory.
+- [x] Failing test → `tests/decision-inputs.test.mjs` (8: `pathwayFromCategory` + `deriveDecisionInputs`).
+- [x] Impl: `pathwayFromCategory` (category→runtime surface; null=study-not-install, preserving soft-gate) in d3-pathway.mjs; exported `deriveDecisionInputs` (gap-fit + pathway) in discover.mjs; wired into `phase4Score` + bootstrap `decideCandidate`; values flow into `routeDecision` AND the persisted record.
+- [x] Verified: **188 tests pass, Biome clean.** Conservative default: no gap evidence → `marginalValue:"low"` → INSTALL caps to STUDY (the codeg-miss fix, live).
 
 ### S3 — R2: bind live workflow to the `routeDecision` decision-envelope + anti-improvisation contract (G2)
 - [ ] Read `.claude/skills/sota-research/SKILL.md` (Scoring & Thresholds ~54–65, Architecture), `docs/protocols/decision.md`, `docs/protocols/scoring.md`.

@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { discover } from "./discover.mjs";
+import { deriveDecisionInputs, discover } from "./discover.mjs";
 import { computeFinalScore } from "./lib/blend.mjs";
 import { routeDecision } from "./lib/decision.mjs";
 import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
+import { loadStackInventory } from "./lib/gap-fit.mjs";
 import { scoreRepo } from "./score.mjs";
 
 /**
@@ -58,7 +59,7 @@ function printDryRun(topicsToProcess, NAMED_TARGETS) {
  * Decide one candidate via the single decision engine. Used for BOTH the markdown table
  * and the persisted decisions.jsonl record (R1), so the human view + audit log never diverge.
  */
-function decideCandidate(c) {
+function decideCandidate(c, inventory = {}, scanIntent = "") {
   const rubricScore = c.score?.rubric_score || 0;
   const codexScore = c.score?.codex_score || 0;
   const sourceCount = c.source_count || 1;
@@ -72,13 +73,19 @@ function decideCandidate(c) {
     sourceTrust,
   });
   const families = sourceTrust?.family_count ?? sourceCount;
+  // R3: gate bootstrap's decisions on gap-fit + adoption-pathway too (same engine inputs as
+  // discover's phase4Score) so both runtime faces route identically.
+  const di = deriveDecisionInputs(c, inventory, { scanIntent, category });
   const decision = routeDecision({
     score: finalScore,
     families,
     category,
     dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+    servesObjective: di.servesObjective,
+    marginalValue: di.marginalValue,
+    adoptionPathway: di.adoptionPathway,
   });
-  return { finalScore, families, category, sourceCount, decision };
+  return { finalScore, families, category, sourceCount, decision, di };
 }
 
 /**
@@ -178,9 +185,20 @@ export async function bootstrap({
     return bScore - aScore;
   });
 
+  // R3: load the stack inventory once for gap-fit gating (conservative {} fallback if absent).
+  let inventory = {};
+  try {
+    inventory = loadStackInventory(baseDir);
+  } catch {
+    inventory = {};
+  }
+
   // Decide every candidate ONCE via the single engine — reused by the markdown table AND
   // the persisted decisions.jsonl record so the human view + audit log never diverge (R1).
-  const decided = sorted.map((c) => ({ candidate: c, ...decideCandidate(c) }));
+  const decided = sorted.map((c) => ({
+    candidate: c,
+    ...decideCandidate(c, inventory, topic || ""),
+  }));
 
   // Write inventory/bootstrap-<ISO-date>.md
   const now = new Date();
@@ -215,7 +233,7 @@ export async function bootstrap({
   // R1: persist the decision envelopes + a scan-<ts>.md (the filename the SOTA-scan PR body
   // references). discover() was called with persist:false above, so each candidate is logged
   // exactly once, here, from the unified merged set.
-  const decisionRecords = decided.map(({ candidate: c, finalScore, category, decision }) =>
+  const decisionRecords = decided.map(({ candidate: c, finalScore, category, decision, di }) =>
     buildDecisionRecord({
       repo: c.nameWithOwner,
       category,
@@ -223,6 +241,9 @@ export async function bootstrap({
       decision,
       dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
       coverage: c.score?.coverage ?? null,
+      servesObjective: di?.servesObjective ?? null,
+      marginalValue: di?.marginalValue ?? null,
+      adoptionPathway: di?.adoptionPathway ?? null,
     }),
   );
   let decisionsFile = null;

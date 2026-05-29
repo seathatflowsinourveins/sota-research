@@ -49,6 +49,36 @@ export function normalizePathway(pathway) {
 }
 
 /**
+ * Map a discovery CATEGORY to its Claude-Code adoption pathway (R3 — "degree of adaptness").
+ * Categories with a direct runtime surface return a ladder key; categories that are
+ * apps / patterns / lists with NO install surface return null, so the decision engine's
+ * d3PathwayVeto caps any INSTALL tier down to STUDY (studyable, not installable). This is
+ * how a high-scoring research-agent or awesome-list is routed to pattern-study, never
+ * auto-install — preserving the soft-gate philosophy at the action layer.
+ */
+export const CATEGORY_PATHWAY = {
+  "mcp-server": "mcp",
+  "skill-pack": "skill",
+  "hook-toolkit": "hook",
+  "code-library": "npm-js",
+  "agent-framework": "npm-js",
+  // No direct Claude-Code runtime surface → null (route to STUDY/REFERENCE, never auto-install):
+  "research-agent": null,
+  "agent-orchestration-pattern": null,
+  "research-with-code": null,
+  "awesome-list": null,
+};
+
+/** Adoption pathway for a discovery category (null = no direct runtime surface). */
+export function pathwayFromCategory(category) {
+  if (!category) return null;
+  const c = String(category).toLowerCase().trim();
+  if (c in CATEGORY_PATHWAY) return CATEGORY_PATHWAY[c];
+  // Unknown category: fall back to the free-form normalizer (handles direct pathway labels).
+  return normalizePathway(c);
+}
+
+/**
  * D3 starting value from the pathway, CAPPED by integration evidence.
  *
  * With zero evidence of a working integration, even an "MCP" claim is capped low
