@@ -123,6 +123,58 @@ async function semanticScholar(_topic, _limit = 25) {
 }
 
 /**
+ * R9 (anti-astroturf): canonicalize a candidate's IDENTITY before convergence counting.
+ *
+ * A repo and its forks / mirrors / registry-derivatives are the SAME origin and must NOT
+ * each contribute an independent identity (or family) — otherwise a single project mirrored
+ * across registries fakes multi-source convergence. We fold to the canonical origin using
+ * CANDIDATE-SUPPLIED evidence (`canonical` > `forkOf` > `mirrorOf`), normalized lowercase.
+ *
+ * Deeper resolution (a GitHub redirect-follow / parent-of-fork GraphQL lookup) is a
+ * WORKFLOW-SIDE concern — this stays a pure, cheap normalization (no network call).
+ *
+ * @param {{nameWithOwner:string, canonical?:string, forkOf?:string, mirrorOf?:string}} candidate
+ * @returns {string} the lowercased canonical "owner/repo" key
+ */
+export function canonicalIdentity(candidate = {}) {
+  const origin =
+    candidate.canonical || candidate.forkOf || candidate.mirrorOf || candidate.nameWithOwner || "";
+  return String(origin).toLowerCase();
+}
+
+/**
+ * Source families that all derive from the SAME upstream origin and therefore must collapse
+ * to ONE independent family (Codex Q5 / rubric §3): GitHub-derived angles are one family;
+ * external AGGREGATORS (awesome-lists, registry badges) are a single `external-aggregator`
+ * family that can never ALONE satisfy the ≥3/≥4 convergence bar.
+ */
+const GITHUB_FAMILY = new Set(["github-search", "github-advanced", "github", "github-graphql"]);
+const AGGREGATOR_FAMILY_PATTERN = /awesome|registry|badge|curated-list|mcp-list/i;
+
+/** Map a raw source label to its canonical INDEPENDENT family. */
+export function canonicalSourceFamily(source) {
+  const s = String(source || "unknown").toLowerCase();
+  if (GITHUB_FAMILY.has(s)) return "github";
+  if (AGGREGATOR_FAMILY_PATTERN.test(s)) return "external-aggregator";
+  return s;
+}
+
+/**
+ * R9: count INDEPENDENT source families from raw source labels — GitHub-derived angles fold
+ * to one family, and ALL external aggregators fold to a single `external-aggregator` family
+ * (so an aggregator-only candidate can never alone reach ≥3/≥4). This is the family count the
+ * decision engine's convergence ACTION cap consumes.
+ *
+ * @param {string[]} sources
+ * @returns {number}
+ */
+export function countIndependentFamilies(sources = []) {
+  const families = new Set();
+  for (const src of sources) families.add(canonicalSourceFamily(src));
+  return families.size;
+}
+
+/**
  * NOVEL 1: Calculate source trust — structured object with diversity dimensions
  * Prevents gaming via multiple sources of the same family
  */
@@ -136,10 +188,13 @@ function calculateSourceTrust(sources) {
     };
   }
 
-  // Count independent source families (e.g., GitHub-derived sources count as 1 family)
+  // Count independent source families. R9: fold GitHub-derived angles to one family and ALL
+  // external aggregators to a single `external-aggregator` family (canonicalSourceFamily), so
+  // mirrors/registry badges of one origin can never inflate the convergence count.
   const familyMap = new Map();
   sources.forEach((src) => {
-    const family = src.family || src.sources?.[0] || "unknown";
+    const raw = src.family || src.sources?.[0] || "unknown";
+    const family = canonicalSourceFamily(raw);
     if (!familyMap.has(family)) familyMap.set(family, 0);
     familyMap.set(family, familyMap.get(family) + 1);
   });
@@ -176,17 +231,26 @@ function calculateSourceTrust(sources) {
 
 /**
  * Phase 2: Convergence aggregation (in-process, no API)
- * Deduplicates candidates and counts sources per canonical name
+ * Deduplicates candidates and counts sources per CANONICAL identity.
+ *
+ * R9 (anti-astroturf): the dedup key is the CANONICAL ORIGIN (canonicalIdentity), so a repo
+ * and its forks/mirrors/registry-derivatives collapse to ONE candidate before family-counting
+ * — a single project mirrored across registries can no longer fake multi-source convergence.
+ * Family counting itself folds GitHub-derived angles to one family and all aggregators to a
+ * single `external-aggregator` family (calculateSourceTrust → canonicalSourceFamily).
  */
-function phase2Convergence(allResults) {
+export function phase2Convergence(allResults) {
   const canonicalMap = new Map();
 
   allResults.forEach((batch) => {
     batch.forEach((candidate) => {
-      const key = candidate.nameWithOwner.toLowerCase();
+      const key = canonicalIdentity(candidate);
       if (!canonicalMap.has(key)) {
+        // Preserve the original casing when NO fold happened (key == lowercased self); only
+        // switch the displayed identity to the canonical origin when a fork/mirror folded in.
+        const folded = key !== String(candidate.nameWithOwner || "").toLowerCase();
         canonicalMap.set(key, {
-          nameWithOwner: candidate.nameWithOwner,
+          nameWithOwner: folded ? key : candidate.nameWithOwner,
           sources: [],
           hint: candidate.hint,
         });

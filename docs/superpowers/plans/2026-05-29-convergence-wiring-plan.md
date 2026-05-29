@@ -8,8 +8,8 @@
 
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
 - **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** S5 (R7) — `probe_status` (`ok`|`unavailable`|`stale`, default `ok`) on the judge-evidence schema in `evidence.mjs`; an `unavailable`/`stale`/unknown probe CAPS confidence (≤0.5 via `capConfidenceForProbe`) and NEVER nulls the value or rejects (soft-gate); scoring.md documents the outage→cap rule; no network call added to the script. **200 tests pass, Biome clean.** ← TIER 2 begun (R7).
-- **Next slice:** S6 (R9 — canonicalize forks/mirrors/registry-derivatives before family-counting; aggregators count ≤1 family).
+- **Last completed:** S6 (R9) — `canonicalIdentity`/`canonicalSourceFamily`/`countIndependentFamilies` in `discover.mjs`; `phase2Convergence` now dedups by CANONICAL ORIGIN (a repo + its forks/mirrors/registry-derivatives fold to one identity) and family-counting folds all GitHub angles → one `github` family and all aggregators → one `external-aggregator` family (an aggregator-only signal can never alone reach ≥3/≥4). Soft-gate comment preserved; pure normalization, no GraphQL redirect call (deep resolve is workflow-side). **210 tests pass, Biome clean.**
+- **Next slice:** S8 (R4-safe — honest source run-status in a SEPARATE `sourceStatus` channel; stubs keep returning `[]`).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Sequencing (GPT-5.5-validated dependency order)
@@ -54,11 +54,11 @@ Hard deps: R3 before R6 (relevance not rankable until phase4 supplies it); R1 be
 - [x] Impl: extended the evidence schema with `probe_status` (`ok|unavailable|stale`, default `ok`) + `capConfidenceForProbe` + `DEGRADED_PROBE_CONFIDENCE_CAP` in `evidence.mjs`; unknown status is flagged AND treated like `unavailable`. scoring.md documents outage→`probe_status:'unavailable'`+cap, never reject. NO network call added to the script (fetch is workflow/agent-side).
 - [x] Verified: **200 tests pass, Biome clean.** Commit `feat(quality): R7 OpenSSF Scorecard probe_status (confidence-cap, not fail-closed)`.
 
-### S6 — R9: canonicalize forks/mirrors/registry-derivatives before family-counting (G6 anti-astroturf)
-- [ ] Read `scripts/discover.mjs` `phase2Convergence` (~178–207) + `calculateSourceTrust` (~126–172); `docs/protocols/discovery.md` (resolveCanonical prose).
-- [ ] **Failing test:** a repo and its fork/mirror collapse to ONE canonical identity before `family_count`; an external-aggregator badge contributes at most ONE family (can never alone satisfy ≥3/≥4).
-- [ ] Impl: `resolveCanonical` (GitHub redirect-follow + parent-of-fork) folding derivatives to one identity before counting; tag aggregators as a single `external-aggregator` family.
-- [ ] Verify green + commit `feat(trust): R9 canonicalize forks/mirrors before family-convergence`.
+### S6 — R9: canonicalize forks/mirrors/registry-derivatives before family-counting (G6 anti-astroturf) ✅ DONE
+- [x] Read `scripts/discover.mjs` `phase2Convergence` + `calculateSourceTrust`.
+- [x] **Failing test** (`tests/discover.test.mjs`, 10 new): a repo + its fork/mirror collapse to ONE canonical identity (via `forkOf`/`mirrorOf`/`canonical` evidence) before `family_count`; external aggregators fold to AT MOST one `external-aggregator` family (aggregator-only can never alone satisfy ≥3/≥4).
+- [x] Impl: pure `canonicalIdentity` (folds fork/mirror evidence to the origin, lowercase) as the `phase2Convergence` dedup key; `canonicalSourceFamily` + `countIndependentFamilies` collapse GitHub angles → one family and aggregators → one family; `calculateSourceTrust` family-count uses the same canonicalization. Soft-gate comment preserved. NO per-candidate GraphQL redirect call (deep resolve noted as workflow-side).
+- [x] Verified: **210 tests pass, Biome clean.** Commit `feat(trust): R9 canonicalize forks/mirrors before family-convergence`.
 
 ### S8 — R4-safe: honest source run-status (separate channel) + wire one real source (G1)
 - [ ] Read `scripts/discover.mjs` (stub sources ~54–120; fan-out ~457–466; `phase2Convergence` `batch.forEach` ~178–181).

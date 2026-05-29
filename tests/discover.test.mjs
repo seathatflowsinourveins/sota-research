@@ -3,7 +3,12 @@ import { promises as fsp } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { discover } from "../scripts/discover.mjs";
+import {
+  canonicalIdentity,
+  countIndependentFamilies,
+  discover,
+  phase2Convergence,
+} from "../scripts/discover.mjs";
 
 // Mock GraphQL response state
 let mockGraphQLResponse = "{}";
@@ -360,6 +365,109 @@ describe("discover.mjs", () => {
         inventoryExists = false;
       }
       expect(inventoryExists).toBe(false);
+    });
+  });
+});
+
+describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting (anti-astroturf)", () => {
+  describe("canonicalIdentity", () => {
+    it("returns the lowercased nameWithOwner when no fork/mirror evidence is present", () => {
+      expect(canonicalIdentity({ nameWithOwner: "Owner/Repo" })).toBe("owner/repo");
+    });
+
+    it("folds a fork to its parent identity (forkOf evidence)", () => {
+      expect(canonicalIdentity({ nameWithOwner: "forker/repo", forkOf: "owner/repo" })).toBe(
+        "owner/repo",
+      );
+    });
+
+    it("folds a mirror to its canonical origin (mirrorOf / canonical evidence)", () => {
+      expect(canonicalIdentity({ nameWithOwner: "gitmirror/repo", mirrorOf: "owner/repo" })).toBe(
+        "owner/repo",
+      );
+      expect(canonicalIdentity({ nameWithOwner: "npm/thing", canonical: "owner/thing" })).toBe(
+        "owner/thing",
+      );
+    });
+  });
+
+  describe("phase2Convergence — fork/mirror collapse to ONE identity", () => {
+    it("collapses a repo and its fork/mirror to a single canonical candidate", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 900 } }],
+        // a fork surfaced by a different angle, tagged as a fork of the same origin
+        [
+          {
+            nameWithOwner: "forker/repo",
+            forkOf: "owner/repo",
+            sources: ["exa"],
+            hint: { stars: 5 },
+          },
+        ],
+        // a registry mirror of the same origin
+        [
+          {
+            nameWithOwner: "npm-mirror/repo",
+            mirrorOf: "owner/repo",
+            sources: ["tavily"],
+            hint: { stars: 0 },
+          },
+        ],
+      ];
+      const out = phase2Convergence(phase1);
+      // all three identities fold into one canonical candidate (no astroturf inflation).
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
+    });
+  });
+
+  describe("countIndependentFamilies — aggregator never alone satisfies ≥3/≥4", () => {
+    it("counts a real source family per distinct origin family", () => {
+      expect(countIndependentFamilies(["github-search", "exa", "tavily"])).toBe(3);
+    });
+
+    it("collapses many GitHub-derived sources to one family", () => {
+      expect(countIndependentFamilies(["github-search", "github-advanced", "github-search"])).toBe(
+        1,
+      );
+    });
+
+    it("collapses external aggregators (awesome-list/registry) into AT MOST one family", () => {
+      // three different aggregator badges are still a single 'external-aggregator' family —
+      // an aggregator-only signal can never alone reach the ≥3/≥4 convergence bar.
+      expect(countIndependentFamilies(["awesome-list", "registry-badge", "awesome-mcp"])).toBe(1);
+    });
+
+    it("an aggregator-only candidate counts as ≤1 family (cannot satisfy ≥3)", () => {
+      const families = countIndependentFamilies(["awesome-list", "awesome-claude", "registry"]);
+      expect(families).toBeLessThanOrEqual(1);
+    });
+
+    it("a genuine multi-family candidate (real source + aggregator) still counts the real source", () => {
+      // github-search (1 real family) + two aggregators (1 aggregator family) = 2 families.
+      expect(countIndependentFamilies(["github-search", "awesome-list", "registry-badge"])).toBe(2);
+    });
+  });
+
+  describe("phase2Convergence — aggregator family-count via source_trust", () => {
+    it("an aggregator-only candidate reports family_count ≤ 1", () => {
+      const phase1 = [
+        [
+          {
+            nameWithOwner: "owner/aggregated",
+            sources: ["awesome-list"],
+            hint: { stars: 3 },
+          },
+          {
+            nameWithOwner: "owner/aggregated",
+            sources: ["registry-badge"],
+            hint: { stars: 3 },
+          },
+        ],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].source_trust.family_count).toBeLessThanOrEqual(1);
     });
   });
 });
