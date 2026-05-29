@@ -17,7 +17,7 @@
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { atomicWrite } from "./atomic-write.mjs";
 
 /** Bump when the decisions.jsonl record shape changes (lets outcome.mjs migrate).
@@ -159,9 +159,11 @@ export function writeScanMarkdown(
   const file = join(baseDir, scanFile);
   // Path containment: scanFile is internally generated (timestamped), but enforce the boundary
   // so a future caller can never write outside baseDir (defense-in-depth, code-review S3).
-  const root = resolve(baseDir);
-  const resolved = resolve(file);
-  if (resolved !== root && !resolved.startsWith(root + sep)) {
+  // Use relative() so containment is correct even when baseDir is a filesystem root (where
+  // `root + sep` would double the separator and false-reject a legitimate path) — GPT-5
+  // convergence catch. Escape = the relative path climbs out (`..`) or is absolute (other drive).
+  const rel = relative(resolve(baseDir), resolve(file));
+  if (isAbsolute(rel) || rel.split(sep)[0] === "..") {
     throw new Error(`writeScanMarkdown: scanFile escapes baseDir (${scanFile})`);
   }
   mkdirSync(dirname(file), { recursive: true });
