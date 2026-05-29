@@ -100,8 +100,11 @@ export function assessGapFit(candidate = {}, inventory = {}, { scanIntent = "" }
     const isStrategic = priorities.includes(gap.id) || mentions(scanIntent, gap.id);
     if (gap.build_not_install) {
       flags.push("gap-fit:build-not-install");
+      // BUG E: build_not_install gaps must cap to STUDY. Return servesObjective:false
+      // so the objectiveRelevanceGate caps the tier, preventing external INSTALLs (per
+      // the rubric: "study the pattern, do not install an external" — Codex 2026-05-28).
       return {
-        servesObjective: true,
+        servesObjective: false,
         marginalValue: "medium",
         gapFilled: gap.id,
         lift: "fills-build-gap",

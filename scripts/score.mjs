@@ -168,7 +168,10 @@ function assessPublisherRisk({ singlePublisher = false, weeklyDownloads = 0, con
     ...config,
   };
 
-  const publisherCount = singlePublisher ? 1 : 0;
+  // BUG D: Normalize singlePublisher — can be boolean true OR numeric 1 (single-publisher count).
+  // If either form, publisherCount = 1; otherwise 0. This ensures the rubric's 0/1 count semantics
+  // and the evidence schema's boolean forms both trigger the risk.
+  const publisherCount = singlePublisher === true || singlePublisher === 1 ? 1 : 0;
   const publisherRisk = publisherCount * Math.log10((weeklyDownloads || 0) + 1);
 
   let flag = "GREEN";
