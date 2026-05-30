@@ -64,4 +64,12 @@ describe("rubric-contract — declared==wired (scoped, backlog-allowlisted)", ()
     expect(ok).toBe(true);
     expect(missing).toEqual([]);
   });
+
+  it("F4: live-multi-source-fanout is now WIRED (selectSources) — moved out of the backlog", () => {
+    // The fan-out's deterministic producer (relevance-ranked source selection) is wired into
+    // discover(); the contract now REQUIRES it, so deleting it would bite in CI.
+    expect(KNOWN_BACKLOG).not.toContain("live-multi-source-fanout");
+    expect(DECLARED_CONTRACT).toContain("live-multi-source-fanout");
+    expect(typeof RUBRIC_PRODUCERS["live-multi-source-fanout"]).toBe("function");
+  });
 });

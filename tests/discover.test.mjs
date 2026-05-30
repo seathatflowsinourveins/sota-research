@@ -448,6 +448,51 @@ describe("discover.mjs", () => {
       expect(out[0].nameWithOwner).toBe("owner/repo");
     });
   });
+
+  describe("F4 — selectSources drives the phase-1 fan-out (live multi-source plan)", () => {
+    it("discover() returns a relevance-ranked sourcePlan with the github floor", async () => {
+      const result = await discover({ topic: "mcp servers", category: "mcp-server", limit: 5 });
+      expect(Array.isArray(result.sourcePlan)).toBe(true);
+      expect(result.sourcePlan.length).toBeGreaterThan(0);
+      expect(result.sourcePlan.some((s) => s.name === "github-search")).toBe(true);
+      for (const s of result.sourcePlan) {
+        expect(typeof s.family).toBe("string");
+        expect(typeof s.relevance).toBe("number");
+      }
+    });
+
+    it("ranks academic sources into the plan for a research category", async () => {
+      const result = await discover({
+        topic: "rag agents",
+        category: "research-with-code",
+        limit: 5,
+      });
+      const names = result.sourcePlan.map((s) => s.name);
+      expect(names).toContain("semantic-scholar");
+      expect(names.indexOf("semantic-scholar")).toBeLessThan(names.indexOf("brave-search"));
+    });
+
+    it("maxSources bounds the plan but keeps the github floor and still RUNs the live source", async () => {
+      const result = await discover({
+        topic: "arxiv paper survey citation benchmark",
+        category: "research-with-code",
+        limit: 5,
+        maxSources: 2,
+      });
+      expect(result.sourcePlan).toHaveLength(2);
+      expect(result.sourcePlan.some((s) => s.name === "github-search")).toBe(true);
+      const ran = result.sourceStatus.filter((s) => s.status === "RUN");
+      expect(ran.map((s) => s.source)).toContain("github-search");
+    });
+
+    it("run-status is a subset of the plan — every RUN source was selected", async () => {
+      const result = await discover({ topic: "mcp-server", category: "mcp-server", limit: 5 });
+      const planned = new Set(result.sourcePlan.map((s) => s.name));
+      for (const s of result.sourceStatus.filter((x) => x.status === "RUN")) {
+        expect(planned.has(s.source)).toBe(true);
+      }
+    });
+  });
 });
 
 describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting (anti-astroturf)", () => {

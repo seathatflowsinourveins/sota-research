@@ -36,6 +36,8 @@ import { evidenceCoverageGate, validateJudgeEvidence } from "./evidence.mjs";
 import { assessGapFit } from "./gap-fit.mjs";
 // D10 provenance overlay.
 import { assessProvenance } from "./provenance.mjs";
+// G1 live multi-source fan-out producer (relevance-ranked phase-1 source selection).
+import { selectSources } from "./source-registry.mjs";
 
 /**
  * The CURATED declared-producer map: each rubric-declared dimension/overlay/gate → the live
@@ -69,6 +71,8 @@ export const RUBRIC_PRODUCERS = {
   "late-security-demotion": lateSecurityDemotion,
   "claim-freshness-gate": claimFreshnessGate,
   "objective-relevance-gate": objectiveRelevanceGate,
+  // Discovery fan-out (G1) — wired in F4
+  "live-multi-source-fanout": selectSources, // relevance-ranked phase-1 selection (deterministic floor)
 };
 
 /**
@@ -98,6 +102,7 @@ export const REQUIRED_PRODUCER_KEYS = Object.freeze([
   "late-security-demotion",
   "claim-freshness-gate",
   "objective-relevance-gate",
+  "live-multi-source-fanout",
 ]);
 
 /** Back-compat alias — the required-key set IS the declared contract. */
@@ -108,13 +113,12 @@ export const DECLARED_CONTRACT = REQUIRED_PRODUCER_KEYS;
  * must NOT fail the contract (the R13 scoping rule). Each is documented elsewhere:
  *  - honeypot-active-malware: Appendix A.8 hard-SAFETY gate is a stub (no active-malware detector)
  *  - weight-auto-tuning: 2nd half of G5 — calibration is manual-gated until a labeled oracle exists
- *  - live-multi-source-fanout: 7 of 8 phase-1 sources are NOT_RUN stubs (workflow/MCP layer's job)
+ *
+ * (live-multi-source-fanout graduated to a WIRED producer in F4 — `selectSources` is the
+ *  deterministic relevance-ranked selection layer in discover(); the real MCP calls remain the
+ *  SKILL.md workflow's job per the scaffold-vs-runtime split.)
  */
-export const KNOWN_BACKLOG = [
-  "honeypot-active-malware",
-  "weight-auto-tuning",
-  "live-multi-source-fanout",
-];
+export const KNOWN_BACKLOG = ["honeypot-active-malware", "weight-auto-tuning"];
 
 /**
  * Check the rubric contract: every DECLARED_CONTRACT item must have a live producer (a function)

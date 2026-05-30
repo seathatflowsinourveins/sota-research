@@ -51,6 +51,52 @@ npm run outcome -- --window 30
 - **`patterns/<owner>/<repo>/deepwiki.md`** — L2: semantic architecture/techniques/pitfalls (DeepWiki MCP)
 - **`patterns/<owner>/<repo>/sota-distill.md`** — L3: ADR-style distillation with novel techniques + adoption targets (Codex)
 
+## Discovery Workflow — Phase-1 Live Multi-Source Fan-out (G1)
+
+**This is the live runtime.** The `.mjs` scripts are deterministic scaffolds; the real multi-source
+discovery happens HERE, in this workflow, because the MCP sources exist only inside an interactive
+Claude Code session. Run phase-1 as a two-tier routing gate (grounded in gpt-researcher's
+`MCPToolSelector` + RAG-MCP / MCP-Zero relevance-routing — see
+`patterns/assafelovic/gpt-researcher/sota-distill.md`):
+
+1. **Rank the sources (deterministic floor).** Call `selectSources(topic, category, { maxSources })`
+   (`scripts/lib/source-registry.mjs`) for the relevance-ranked phase-1 plan. This is the always-on
+   backstop: `github-search` is guaranteed present even on a relevance miss, so the fan-out never
+   empties. Each entry carries `{name, family, relevance, reason}`. `discover()` already returns this
+   as `sourcePlan`.
+2. **(Optional) LLM-rerank** the plan against the *specific* scan intent (the expensive tier). If you
+   skip it, or it errors, the deterministic ranking from step 1 stands — never stall the scan.
+3. **Query each selected source in priority order**, mapping the source name → its real MCP tool:
+   - `github-search` → `mcp__github__search_repositories` (also the live in-script source)
+   - `exa` → `mcp__exa__web_search_exa` / `mcp__exa__get_code_context_exa`
+   - `tavily` → `mcp__tavily__tavily_search`
+   - `brave-search` → `mcp__brave-search__brave_web_search`
+   - `jina` → `mcp__jina__search_web` (recency) / `mcp__jina__search_arxiv` (academic)
+   - `semantic-scholar` → `mcp__semantic-scholar__search_papers`
+   - `awesome-list` → `mcp__firecrawl__firecrawl_scrape` (curated lists)
+
+   Respect `maxSources` and the per-scan budget (deep-score at most Top-K per category; on a budget
+   hit emit the best partial ranked shortlist + mark the remainder WATCH/backlog — never crash,
+   never silently drop).
+4. **Normalize every result** through `normalizeCandidate(result, source)`. It reduces a
+   heterogeneous web/academic hit to the GitHub repo it references (`extractRepoIdentity`) and tags
+   it `sources: [source]`; a result referencing no repo returns `null` → drop it (it cannot be
+   scored as a repo). This is the gpt-researcher "normalize every tool result uniformly" discipline.
+5. **Converge.** Pass the family-tagged candidate batches (one array per source) into
+   `phase2Convergence` — it canonicalizes forks/mirrors (R9 `canonicalIdentity`), per-source
+   Set-unions the `sources`, and counts INDEPENDENT families (`canonicalSourceFamily` folds a single
+   engine's tool-variants — `exa-web`/`exa-code` — to ONE family, so one engine cannot fake
+   convergence). A repo surfaced by `github-search` AND referenced by an Exa hit is a real 2-family
+   signal the convergence action-cap rewards.
+6. **Score + decide** the converged set exactly as the script does: `phase3HardFilter` →
+   `phase4Score` → `routeDecision`, then **emit one decision-envelope per candidate** (below). The
+   engine is authoritative; convergence is a CAP, not auto-eligibility; the soft-gate is sacred
+   (low-star niche repos survive to STUDY/REFERENCE — selection orders breadth, it NEVER rejects).
+
+A source an MCP outage makes unavailable is an evidence-availability gap, not a quality verdict:
+record it `NOT_RUN` in the run-status channel (so a low `family_count` reads as "fewer sources ran",
+not "low quality") and continue — the deterministic floor keeps the scan honest.
+
 ## Scoring & Thresholds — the decision engine is authoritative
 
 **The recommendation for every candidate is the `action` returned by `routeDecision()`

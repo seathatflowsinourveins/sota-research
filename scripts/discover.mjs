@@ -6,6 +6,7 @@ import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/d
 import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 import { assessProvenance } from "./lib/provenance.mjs";
+import { selectSources } from "./lib/source-registry.mjs";
 import { scoreRepo } from "./score.mjs";
 
 // M-1: Use secure ghGraphQL helper instead of shell-based executeGraphQL
@@ -644,24 +645,35 @@ export async function discover({
   sources: _sources = [],
   baseDir = process.cwd(),
   persist = false, // explicit opt-in: the CLI entrypoint persists; library callers don't write by default
+  maxSources, // optional cap on phase-1 source breadth (budget); the github floor always survives
 }) {
   if (!topic) {
     throw new Error("topic required");
   }
 
-  // Phase 1: Parallel fan-out, driven by the PHASE1_SOURCES descriptor (single source of truth).
-  // Every source returns an ARRAY of candidates (stubs return []) — never a status object — so
+  // F4: rank the phase-1 sources by fit-to-(topic, category) BEFORE querying (RAG-MCP / MCP-Zero:
+  // retrieve+rank before the model sees them). selectSources is the deterministic FLOOR — github
+  // always survives, so the fan-out never empties even on a relevance miss. The SKILL.md WORKFLOW
+  // follows this same plan to call the REAL MCP sources (exa/tavily/jina/brave/semantic-scholar);
+  // in this headless script only the `live` in-script fns produce data (the rest return []).
+  const sourcePlan = selectSources(topic, category, { maxSources });
+  const plannedNames = new Set(sourcePlan.map((s) => s.name));
+
+  // Phase 1: Parallel fan-out over the SELECTED sources (relevance-ranked, budget-bounded). Every
+  // source returns an ARRAY of candidates (stubs return []) — never a status object — so
   // phase2Convergence's batch.forEach is safe (GPT-5.5 trap). Run-status is tracked SEPARATELY.
-  const phase1 = await Promise.all(PHASE1_SOURCES.map((s) => s.fn(topic, limit)));
+  const phase1 = await Promise.all(
+    PHASE1_SOURCES.filter((s) => plannedNames.has(s.name)).map((s) => s.fn(topic, limit)),
+  );
 
   // R4-safe: honest source run-status in a SEPARATE channel (NOT inside the candidate arrays).
-  // Only `live` in-script sources RAN; the rest are NOT_RUN stubs. This tells a reader that a
-  // low family_count reflects "only 1 source ran" (currently just github-search), not low
-  // quality. Wiring the real non-GitHub sources is the WORKFLOW layer's job (MCP-only) — the
-  // SourceAdapter factory is deferred (ADR). Surfaced on the discover() return below.
+  // A source RAN only if it is a `live` in-script source AND was selected this scan; the rest are
+  // NOT_RUN (a stub, or de-selected by relevance). This tells a reader that a low family_count
+  // reflects "only 1 source ran" (currently just github-search), not low quality. The real
+  // non-GitHub MCP calls are the WORKFLOW layer's job — surfaced via sourcePlan on the return.
   const sourceStatus = PHASE1_SOURCES.map((s) => ({
     source: s.name,
-    status: s.live ? "RUN" : "NOT_RUN",
+    status: s.live && plannedNames.has(s.name) ? "RUN" : "NOT_RUN",
   }));
 
   // Phase 2: Convergence aggregation
@@ -736,6 +748,7 @@ export async function discover({
     decisionsFile,
     decisions,
     sourceStatus,
+    sourcePlan,
   };
 }
 
