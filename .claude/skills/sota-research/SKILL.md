@@ -92,6 +92,11 @@ Claude Code session. Run phase-1 as a two-tier routing gate (grounded in gpt-res
    `phase4Score` → `routeDecision`, then **emit one decision-envelope per candidate** (below). The
    engine is authoritative; convergence is a CAP, not auto-eligibility; the soft-gate is sacred
    (low-star niche repos survive to STUDY/REFERENCE — selection orders breadth, it NEVER rejects).
+7. **Compare (R5).** When the scan yields ≥2 scored candidates of the SAME category, emit a
+   comparative Top-N matrix via `renderTopNMatrix(candidates, { category })`
+   (`scripts/lib/top-n-matrix.mjs`) — a pure projection of [D1–D8, Score, Tier, Pathway, Families,
+   Provenance, GapFit] ranked by the engine verdict. It renders nothing below 2 (no mostly-empty
+   rows); this was deferred until the live fan-out made ≥2 same-category routine (ADR-R5).
 
 A source an MCP outage makes unavailable is an evidence-availability gap, not a quality verdict:
 record it `NOT_RUN` in the run-status channel (so a low `family_count` reads as "fewer sources ran",
