@@ -1,6 +1,16 @@
 import { EventEmitter } from "node:events";
+import { promises as fsp } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { discover } from "../scripts/discover.mjs";
+import {
+  canonicalIdentity,
+  canonicalSourceFamily,
+  countIndependentFamilies,
+  discover,
+  PHASE1_SOURCES,
+  phase2Convergence,
+} from "../scripts/discover.mjs";
 
 // Mock GraphQL response state
 let mockGraphQLResponse = "{}";
@@ -114,53 +124,55 @@ describe("discover.mjs", () => {
   });
 
   describe("Phase 2: convergence aggregation", () => {
-    it("should deduplicate candidates by nameWithOwner", () => {
-      // Test the canonicalization + source counting logic
-      // Simulate phase-1 results with duplicates
-      const phase1Results = [
-        { nameWithOwner: "owner/repo", sources: ["github"], hint: { stars: 100 } },
-        { nameWithOwner: "owner/repo", sources: ["tavily"], hint: { stars: 100 } },
-        { nameWithOwner: "other/repo", sources: ["exa"], hint: { stars: 50 } },
+    it("dedups by canonical identity, collapsing the same origin across sources into one candidate", () => {
+      // CALL phase2Convergence on phase-1 batches with a duplicate origin (was a vacuous fixture assert).
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        [{ nameWithOwner: "owner/repo", sources: ["tavily"], hint: { stars: 100 } }],
+        [{ nameWithOwner: "other/repo", sources: ["exa"], hint: { stars: 50 } }],
       ];
-
-      // Expected: 3 items in input (dedup happens in phase2Convergence)
-      expect(phase1Results).toHaveLength(3);
+      const out = phase2Convergence(phase1);
+      // owner/repo's two appearances collapse to one; other/repo is distinct → 2 candidates.
+      expect(out).toHaveLength(2);
+      const owner = out.find((c) => c.nameWithOwner === "owner/repo");
+      expect(owner).toBeDefined();
+      expect(owner.source_count).toBe(2);
     });
 
-    it("should filter out single-source low-signal candidates", () => {
-      // Candidates with source_count==1 AND hint.stars < threshold should drop
-      const phase1Results = [
-        { nameWithOwner: "owner/low", sources: ["github"], hint: { stars: 10 } },
+    it("aggregates source_count and source_list across the sources that surfaced one origin", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 80 } }],
+        [{ nameWithOwner: "owner/repo", sources: ["exa"], hint: { stars: 80 } }],
       ];
-
-      // Expected: single input item (convergence filters it)
-      expect(phase1Results).toHaveLength(1);
-    });
-
-    it("should retain multi-source candidates regardless of signal", () => {
-      const phase1Results = [
-        {
-          nameWithOwner: "owner/repo",
-          sources: ["github", "exa", "tavily"],
-          hint: { stars: 5 },
-        },
-      ];
-
-      // Expected: kept (3 sources)
-      expect(phase1Results[0].sources).toHaveLength(3);
-    });
-
-    it("should compute source_count and source_list", () => {
-      // After convergence, each candidate should have source_count and source_list
-      const candidate = {
-        nameWithOwner: "owner/repo",
-        sources: ["github", "exa"],
-        source_count: 2,
-        source_list: ["github", "exa"],
-      };
-
+      const [candidate] = phase2Convergence(phase1);
       expect(candidate.source_count).toBe(2);
-      expect(candidate.source_list).toEqual(["github", "exa"]);
+      expect(candidate.source_list).toEqual(["github-search", "exa"]);
+      // source_trust is attached so the decision engine can family-count downstream.
+      expect(candidate.source_trust).toHaveProperty("family_count");
+    });
+
+    it("RETAINS a low-star single-source candidate (soft-gate — must NOT be dropped here)", () => {
+      // Rubric §1: a low-star niche repo can be best-in-area; convergence must not auto-reject it.
+      // Volume is bounded downstream (action-cap → STUDY + triage Top-K), never by dropping it here.
+      const phase1 = [
+        [{ nameWithOwner: "owner/low", sources: ["github-search"], hint: { stars: 3 } }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/low");
+      expect(out[0].source_count).toBe(1);
+    });
+
+    it("folds a fork/mirror candidate into its origin (R9 canonicalIdentity) before counting", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 900 } }],
+        [{ nameWithOwner: "forker/repo", forkOf: "owner/repo", sources: ["exa"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      // fork folds to the origin identity → one canonical candidate carrying both sources.
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
+      expect(out[0].source_list).toEqual(["github-search", "exa"]);
     });
   });
 
@@ -263,6 +275,402 @@ describe("discover.mjs", () => {
 
       expect(mockCandidate.source_trust.type_weight).toBeGreaterThanOrEqual(0);
       expect(mockCandidate.source_trust.type_weight).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe("R1 — decision persistence", () => {
+    it("persists decisions.jsonl + a scan-*.md under baseDir when persist:true", async () => {
+      // Rich mock so scoreRepo() succeeds and a real decision envelope is produced.
+      setMockGraphQLResponse({
+        data: {
+          rateLimit: {
+            remaining: 4000,
+            resetAt: new Date(Date.now() + 3600000).toISOString(),
+            cost: 1,
+            nodeCount: 1,
+          },
+          search: {
+            repositoryCount: 50,
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                nameWithOwner: "owner/test-repo",
+                stargazerCount: 300,
+                pushedAt: "2025-01-01T00:00:00Z",
+                licenseInfo: { spdxId: "MIT" },
+                repositoryTopics: { nodes: [{ topic: { name: "mcp-server" } }] },
+                description: "A test repository",
+              },
+            ],
+          },
+          // Union shape: discover's phase-3 hard filter AND scoreRepo both read data.repository,
+          // so it must satisfy both (license/archived/readme for the gate; stars/forks/etc. for scoring).
+          repository: {
+            nameWithOwner: "owner/test-repo",
+            isArchived: false,
+            isDisabled: false,
+            isMirror: false,
+            licenseInfo: { spdxId: "MIT" },
+            stargazerCount: 300,
+            forkCount: 50,
+            watchers: { totalCount: 20 },
+            issues: { totalCount: 10 },
+            pullRequests: { totalCount: 30 },
+            defaultBranchRef: {
+              target: {
+                history: {
+                  totalCount: 200,
+                  nodes: Array(10).fill({ committedDate: "2025-01-01T00:00:00Z" }),
+                },
+              },
+            },
+            pushedAt: "2025-01-01T00:00:00Z",
+            releases: { nodes: [{ createdAt: "2025-01-01T00:00:00Z" }] },
+            collaborators: { totalCount: 5 },
+            languages: { nodes: [{ name: "JavaScript", size: 5000 }] },
+            repositoryTopics: { nodes: [{ topic: { name: "mcp-server" } }] },
+            object: { byteSize: 5000, text: "A test repository" },
+          },
+        },
+      });
+      const dir = join(tmpdir(), `sota-discover-${process.pid}-${Math.floor(performance.now())}`);
+      // Fail-closed gap-fit requires config/stack-inventory.json under baseDir (CodeRabbit major);
+      // seed a minimal valid one so the scan runs in the temp baseDir (mirrors bootstrap.test).
+      await fsp.mkdir(join(dir, "config"), { recursive: true });
+      await fsp.writeFile(
+        join(dir, "config", "stack-inventory.json"),
+        JSON.stringify({ version: "test", layers: {}, gaps: [], strategic_priorities: [] }),
+      );
+      const result = await discover({
+        topic: "mcp-server",
+        category: "mcp-server",
+        limit: 10,
+        baseDir: dir,
+        persist: true,
+      });
+
+      expect(result.decisionsFile).toMatch(/inventory[\\/]decisions\.jsonl$/);
+      const content = await fsp.readFile(result.decisionsFile, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+      const parsed = lines.map((l) => JSON.parse(l));
+      expect(parsed[0]).toHaveProperty("schema_version");
+
+      // C2 provenance: every record from one scan shares ONE run_id, and each decision_id is
+      // unique per repo (run_id::repo). This lets the consumer group + de-dup a run downstream.
+      const runIds = new Set(parsed.map((r) => r.run_id));
+      expect(runIds.size).toBe(1);
+      expect([...runIds][0]).toBeTruthy();
+      const decisionIds = parsed.map((r) => r.decision_id);
+      expect(new Set(decisionIds).size).toBe(decisionIds.length); // all unique
+      expect(parsed[0].decision_id).toBe(`${parsed[0].run_id}::${parsed[0].repo}`);
+
+      const files = await fsp.readdir(join(dir, "inventory"));
+      expect(files.some((f) => /^scan-.*\.md$/.test(f))).toBe(true);
+
+      await fsp.rm(dir, { recursive: true, force: true });
+    });
+
+    it("does NOT write when persist is false (default — library callers get no surprise side-effects)", async () => {
+      const dir = join(
+        tmpdir(),
+        `sota-discover-nopersist-${process.pid}-${Math.floor(performance.now())}`,
+      );
+      // Seed the fail-closed gap-fit prerequisite (config/) but NOT inventory/ — the test asserts
+      // persist:false creates no inventory/ side-effects.
+      await fsp.mkdir(join(dir, "config"), { recursive: true });
+      await fsp.writeFile(
+        join(dir, "config", "stack-inventory.json"),
+        JSON.stringify({ version: "test", layers: {}, gaps: [], strategic_priorities: [] }),
+      );
+      const result = await discover({ topic: "mcp-server", limit: 10, baseDir: dir });
+
+      expect(result.decisionsFile).toBeNull();
+      let inventoryExists = true;
+      try {
+        await fsp.access(join(dir, "inventory"));
+      } catch {
+        inventoryExists = false;
+      }
+      expect(inventoryExists).toBe(false);
+
+      await fsp.rm(dir, { recursive: true, force: true });
+    });
+  });
+
+  describe("R4-safe — honest source run-status (SEPARATE channel, no batch.forEach break)", () => {
+    it("discover() returns sourceStatus marking github-search RUN and the 7 stubs NOT_RUN", async () => {
+      const result = await discover({ topic: "mcp-server", limit: 10 });
+      expect(result).toHaveProperty("sourceStatus");
+
+      const byName = new Map(result.sourceStatus.map((s) => [s.source, s.status]));
+      // Only github-search is a live source in-script; the rest are MCP/workflow-only stubs.
+      expect(byName.get("github-search")).toBe("RUN");
+      for (const stub of [
+        "github-advanced",
+        "awesome-list",
+        "exa",
+        "tavily",
+        "brave-search",
+        "jina",
+        "semantic-scholar",
+      ]) {
+        expect(byName.get(stub)).toBe("NOT_RUN");
+      }
+    });
+
+    it("exactly one of the 8 phase-1 sources ran (so a low family_count is 'only 1 source ran', not 'low quality')", async () => {
+      const result = await discover({ topic: "mcp-server", limit: 10 });
+      expect(result.sourceStatus).toHaveLength(8);
+      const ran = result.sourceStatus.filter((s) => s.status === "RUN");
+      expect(ran).toHaveLength(1);
+      expect(ran[0].source).toBe("github-search");
+    });
+
+    it("PHASE1_SOURCES is the single source of truth: 8 sources, exactly 1 live", () => {
+      expect(PHASE1_SOURCES).toHaveLength(8);
+      const live = PHASE1_SOURCES.filter((s) => s.live);
+      expect(live).toHaveLength(1);
+      expect(live[0].name).toBe("github-search");
+    });
+
+    it("does NOT inject {status} objects into candidate arrays — phase2Convergence still receives arrays", () => {
+      // Regression guard for the GPT-5.5 trap: a {status:'NOT_RUN'} object in a candidate
+      // batch would break phase2Convergence's batch.forEach. The status lives in a SEPARATE
+      // channel, so the candidate arrays stay pure arrays of candidates.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        [], // a stub source contributes an empty ARRAY, never a status object
+      ];
+      expect(() => phase2Convergence(phase1)).not.toThrow();
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
+    });
+  });
+
+  describe("F4 — selectSources drives the phase-1 fan-out (live multi-source plan)", () => {
+    it("discover() returns a relevance-ranked sourcePlan with the github floor", async () => {
+      const result = await discover({ topic: "mcp servers", category: "mcp-server", limit: 5 });
+      expect(Array.isArray(result.sourcePlan)).toBe(true);
+      expect(result.sourcePlan.length).toBeGreaterThan(0);
+      expect(result.sourcePlan.some((s) => s.name === "github-search")).toBe(true);
+      for (const s of result.sourcePlan) {
+        expect(typeof s.family).toBe("string");
+        expect(typeof s.relevance).toBe("number");
+      }
+    });
+
+    it("ranks academic sources into the plan for a research category", async () => {
+      const result = await discover({
+        topic: "rag agents",
+        category: "research-with-code",
+        limit: 5,
+      });
+      const names = result.sourcePlan.map((s) => s.name);
+      expect(names).toContain("semantic-scholar");
+      expect(names.indexOf("semantic-scholar")).toBeLessThan(names.indexOf("brave-search"));
+    });
+
+    it("maxSources bounds the plan but keeps the github floor and still RUNs the live source", async () => {
+      const result = await discover({
+        topic: "arxiv paper survey citation benchmark",
+        category: "research-with-code",
+        limit: 5,
+        maxSources: 2,
+      });
+      expect(result.sourcePlan).toHaveLength(2);
+      expect(result.sourcePlan.some((s) => s.name === "github-search")).toBe(true);
+      const ran = result.sourceStatus.filter((s) => s.status === "RUN");
+      expect(ran.map((s) => s.source)).toContain("github-search");
+    });
+
+    it("run-status is a subset of the plan — every RUN source was selected", async () => {
+      const result = await discover({ topic: "mcp-server", category: "mcp-server", limit: 5 });
+      const planned = new Set(result.sourcePlan.map((s) => s.name));
+      for (const s of result.sourceStatus.filter((x) => x.status === "RUN")) {
+        expect(planned.has(s.source)).toBe(true);
+      }
+    });
+  });
+});
+
+describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting (anti-astroturf)", () => {
+  describe("canonicalIdentity", () => {
+    it("returns the lowercased nameWithOwner when no fork/mirror evidence is present", () => {
+      expect(canonicalIdentity({ nameWithOwner: "Owner/Repo" })).toBe("owner/repo");
+    });
+
+    it("folds a fork to its parent identity (forkOf evidence)", () => {
+      expect(canonicalIdentity({ nameWithOwner: "forker/repo", forkOf: "owner/repo" })).toBe(
+        "owner/repo",
+      );
+    });
+
+    it("folds a mirror to its canonical origin (mirrorOf / canonical evidence)", () => {
+      expect(canonicalIdentity({ nameWithOwner: "gitmirror/repo", mirrorOf: "owner/repo" })).toBe(
+        "owner/repo",
+      );
+      expect(canonicalIdentity({ nameWithOwner: "npm/thing", canonical: "owner/thing" })).toBe(
+        "owner/thing",
+      );
+    });
+  });
+
+  describe("phase2Convergence — fork/mirror collapse to ONE identity", () => {
+    it("collapses a repo and its fork/mirror to a single canonical candidate", () => {
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 900 } }],
+        // a fork surfaced by a different angle, tagged as a fork of the same origin
+        [
+          {
+            nameWithOwner: "forker/repo",
+            forkOf: "owner/repo",
+            sources: ["exa"],
+            hint: { stars: 5 },
+          },
+        ],
+        // a registry mirror of the same origin
+        [
+          {
+            nameWithOwner: "npm-mirror/repo",
+            mirrorOf: "owner/repo",
+            sources: ["tavily"],
+            hint: { stars: 0 },
+          },
+        ],
+      ];
+      const out = phase2Convergence(phase1);
+      // all three identities fold into one canonical candidate (no astroturf inflation).
+      expect(out).toHaveLength(1);
+      expect(out[0].nameWithOwner).toBe("owner/repo");
+    });
+  });
+
+  describe("countIndependentFamilies — aggregator never alone satisfies ≥3/≥4", () => {
+    it("counts a real source family per distinct origin family", () => {
+      expect(countIndependentFamilies(["github-search", "exa", "tavily"])).toBe(3);
+    });
+
+    it("collapses many GitHub-derived sources to one family", () => {
+      expect(countIndependentFamilies(["github-search", "github-advanced", "github-search"])).toBe(
+        1,
+      );
+    });
+
+    it("collapses external aggregators (awesome-list/registry) into AT MOST one family", () => {
+      // three different aggregator badges are still a single 'external-aggregator' family —
+      // an aggregator-only signal can never alone reach the ≥3/≥4 convergence bar.
+      expect(countIndependentFamilies(["awesome-list", "registry-badge", "awesome-mcp"])).toBe(1);
+    });
+
+    it("an aggregator-only candidate counts as ≤1 family (cannot satisfy ≥3)", () => {
+      const families = countIndependentFamilies(["awesome-list", "awesome-claude", "registry"]);
+      expect(families).toBeLessThanOrEqual(1);
+    });
+
+    it("a genuine multi-family candidate (real source + aggregator) still counts the real source", () => {
+      // github-search (1 real family) + two aggregators (1 aggregator family) = 2 families.
+      expect(countIndependentFamilies(["github-search", "awesome-list", "registry-badge"])).toBe(2);
+    });
+  });
+
+  describe("canonicalSourceFamily — engine variants fold to ONE family (F3, anti-astroturf)", () => {
+    it("folds exa/tavily/jina/brave tool-variants to their single engine family", () => {
+      expect(canonicalSourceFamily("exa-web")).toBe("exa");
+      expect(canonicalSourceFamily("exa-code")).toBe("exa");
+      expect(canonicalSourceFamily("tavily-basic")).toBe("tavily");
+      expect(canonicalSourceFamily("tavily-research")).toBe("tavily");
+      expect(canonicalSourceFamily("jina-arxiv")).toBe("jina");
+      expect(canonicalSourceFamily("brave-news")).toBe("brave");
+      expect(canonicalSourceFamily("brave-search")).toBe("brave");
+    });
+
+    it("folds semantic-scholar variants (incl. s2) to one family", () => {
+      expect(canonicalSourceFamily("semantic-scholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("semanticscholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("s2")).toBe("semantic-scholar");
+    });
+
+    it("does NOT false-fold a similarly-prefixed unrelated source", () => {
+      expect(canonicalSourceFamily("example")).toBe("example"); // not 'exa'
+      expect(canonicalSourceFamily("bravado")).toBe("bravado"); // not 'brave'
+    });
+
+    it("counts one engine queried via multiple tools as ONE independent family (anti-astroturf)", () => {
+      expect(countIndependentFamilies(["exa-web", "exa-code", "exa-deep"])).toBe(1);
+    });
+
+    it("counts distinct engines as distinct families", () => {
+      expect(
+        countIndependentFamilies(["github-search", "exa-web", "tavily-basic", "jina-arxiv"]),
+      ).toBe(4);
+    });
+
+    it("folds UNDERSCORE tool-variants too (JS \\b treats _ as a word char — GPT-5.5 QC MAJOR)", () => {
+      // MCP tool names are underscore-heavy; `^exa\b` matched exa-web but NOT exa_web (no boundary
+      // between a word char and `_`), letting one engine fake multi-source convergence.
+      expect(canonicalSourceFamily("exa_web")).toBe("exa");
+      expect(canonicalSourceFamily("brave_web_search")).toBe("brave");
+      expect(canonicalSourceFamily("semantic_scholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("s2_search")).toBe("semantic-scholar");
+      // one engine via mixed _/- tool labels still collapses to ONE independent family
+      expect(countIndependentFamilies(["exa_web", "exa_code", "exa-deep"])).toBe(1);
+      // and the no-false-fold guard still holds for an underscore-adjacent unrelated name
+      expect(canonicalSourceFamily("example")).toBe("example");
+    });
+  });
+
+  describe("phase2Convergence — per-source Set-union merge (S1 correctness)", () => {
+    it("a multi-source candidate contributes ALL its distinct sources when sources[0] is already present", () => {
+      // Bug: the old merge guarded on `includes(candidate.sources[0])` then pushed ALL sources,
+      // so a later candidate whose sources[0] is already present dropped its remaining NEW sources.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search"], hint: { stars: 100 } }],
+        // arrives with github-search (already present) FOLLOWED BY two genuinely new sources
+        [{ nameWithOwner: "owner/repo", sources: ["github-search", "exa", "tavily"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].source_list).toEqual(["github-search", "exa", "tavily"]);
+      expect(out[0].source_count).toBe(3);
+    });
+
+    it("never duplicates a source already accumulated (Set-union, not blind push)", () => {
+      // Bug: when sources[0] was NOT yet present, the old merge pushed the WHOLE array — duplicating
+      // any later source that was already accumulated.
+      const phase1 = [
+        [{ nameWithOwner: "owner/repo", sources: ["github-search", "exa"], hint: {} }],
+        // exa already present; arrives as the SECOND element behind a new source → blind push dupes it
+        [{ nameWithOwner: "owner/repo", sources: ["tavily", "exa"], hint: {} }],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      // distinct union, each source exactly once, first-seen order preserved
+      expect(out[0].source_list).toEqual(["github-search", "exa", "tavily"]);
+      expect(new Set(out[0].source_list).size).toBe(out[0].source_list.length);
+    });
+  });
+
+  describe("phase2Convergence — aggregator family-count via source_trust", () => {
+    it("an aggregator-only candidate reports family_count ≤ 1", () => {
+      const phase1 = [
+        [
+          {
+            nameWithOwner: "owner/aggregated",
+            sources: ["awesome-list"],
+            hint: { stars: 3 },
+          },
+          {
+            nameWithOwner: "owner/aggregated",
+            sources: ["registry-badge"],
+            hint: { stars: 3 },
+          },
+        ],
+      ];
+      const out = phase2Convergence(phase1);
+      expect(out).toHaveLength(1);
+      expect(out[0].source_trust.family_count).toBeLessThanOrEqual(1);
     });
   });
 });

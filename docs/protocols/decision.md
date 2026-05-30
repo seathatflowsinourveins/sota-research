@@ -139,6 +139,35 @@ node scripts/discover.mjs --topic "trading-stack" --category "code-library" \
    ```
 2. Skip ingestion
 
+## Decision envelope (the engine's contract with the live workflow)
+
+`routeDecision()` (`scripts/lib/decision.mjs`) returns the canonical **decision envelope** —
+the single authoritative verdict the interactive workflow (SKILL.md) and CI (bootstrap.mjs)
+MUST honor (R2, 2026-05-29):
+
+```json
+{
+  "action": "STUDY",
+  "flags": ["recency:stale"],
+  "review_required": false,
+  "override_applied": [],
+  "families": 2,
+  "trace": ["base:STUDY(score=74)", "action-cap:STUDY(families=2)"],
+  "rubricVersion": "v3.1"
+}
+```
+
+- **`action`** is the recommendation. The workflow MUST present this — not a score-band lookup,
+  not its own judgment (anti-improvisation contract; see `.claude/skills/sota-research/SKILL.md`).
+- **`trace[]`** is the auditable gate-by-gate path; persisted to `scan-<ts>.md` + `decisions.jsonl`
+  so any verdict is reconstructable.
+- The discovery pipeline derives `servesObjective`/`marginalValue` (gap-fit, `scripts/lib/gap-fit.mjs`)
+  and `adoptionPathway` (category→runtime surface, `scripts/lib/d3-pathway.mjs`) via
+  `deriveDecisionInputs` and passes them in — so `objectiveRelevanceGate` and `d3PathwayVeto`
+  are LIVE gates, not no-ops.
+- `scripts/lib/decision-log.mjs` persists the envelope (as a backward-compatible superset) per
+  candidate; the human-readable `scan-<ts>.md` renders one fenced ```json envelope block each.
+
 ## Audit trail
 
 All decisions logged to `inventory/decisions.jsonl` (one JSON object per line):

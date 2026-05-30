@@ -67,6 +67,96 @@ describe("evidence.mjs — validateJudgeEvidence (judge-output schema)", () => {
   });
 });
 
+describe("evidence.mjs — validateJudgeEvidence (R7 probe_status — confidence-cap, NOT reject)", () => {
+  it("defaults probe_status to 'ok' when absent and leaves confidence untouched", () => {
+    const { ok, clean } = validateJudgeEvidence({
+      value: 8,
+      source: "api.scorecard.dev",
+      confidence: 0.9,
+    });
+    expect(ok).toBe(true);
+    expect(clean.probe_status).toBe("ok");
+    expect(clean.confidence).toBe(0.9);
+    expect(clean.value).toBe(8);
+  });
+
+  it("probe_status:'ok' leaves a high confidence as-is", () => {
+    const { ok, clean } = validateJudgeEvidence({
+      value: 8,
+      source: "api.scorecard.dev",
+      confidence: 0.9,
+      probe_status: "ok",
+    });
+    expect(ok).toBe(true);
+    expect(clean.probe_status).toBe("ok");
+    expect(clean.confidence).toBe(0.9);
+  });
+
+  it("probe_status:'unavailable' CAPS confidence (≤0.5) but does NOT null the value and does NOT reject (soft-gate)", () => {
+    const { ok, clean } = validateJudgeEvidence({
+      value: 7,
+      source: "api.scorecard.dev",
+      confidence: 0.95,
+      probe_status: "unavailable",
+    });
+    // soft-gate: an OpenSSF outage caps confidence, never rejects and never zeroes D4.
+    expect(ok).toBe(true);
+    expect(clean.probe_status).toBe("unavailable");
+    expect(clean.confidence).toBeLessThanOrEqual(0.5);
+    expect(clean.value).toBe(7);
+  });
+
+  it("probe_status:'stale' also caps confidence (≤0.5), value flows through", () => {
+    const { ok, clean } = validateJudgeEvidence({
+      value: 6,
+      source: "api.scorecard.dev",
+      confidence: 0.8,
+      probe_status: "stale",
+    });
+    expect(ok).toBe(true);
+    expect(clean.probe_status).toBe("stale");
+    expect(clean.confidence).toBeLessThanOrEqual(0.5);
+    expect(clean.value).toBe(6);
+  });
+
+  it("a present Scorecard value still flows through with probe_status:'ok'", () => {
+    const { ok, clean } = validateJudgeEvidence({
+      value: 9,
+      source: "api.scorecard.dev/projects/github.com/o/r",
+      confidence: 0.7,
+      probe_status: "ok",
+    });
+    expect(ok).toBe(true);
+    expect(clean.value).toBe(9);
+    expect(clean.confidence).toBe(0.7);
+  });
+
+  it("an unknown probe_status value is flagged and treated conservatively (capped, not trusted)", () => {
+    const { ok, errors, clean } = validateJudgeEvidence({
+      value: 5,
+      source: "x",
+      confidence: 0.9,
+      probe_status: "bogus",
+    });
+    expect(ok).toBe(false);
+    expect(errors.join(" ")).toMatch(/probe_status/);
+    // unknown status must NOT pass through at full confidence (treated like unavailable)
+    expect(clean.confidence).toBeLessThanOrEqual(0.5);
+  });
+
+  it("caps a null confidence to the ceiling when probe is unavailable (no fabricated number)", () => {
+    const { clean } = validateJudgeEvidence({
+      value: 7,
+      source: "x",
+      probe_status: "unavailable",
+    });
+    // confidence was absent (null); an unavailable probe means we cannot claim high confidence,
+    // so it is set to the cap ceiling — still a real bound, never invented precision above it.
+    expect(clean.confidence).toBeLessThanOrEqual(0.5);
+    expect(clean.value).toBe(7);
+  });
+});
+
 describe("evidence.mjs — evidenceCoverageGate", () => {
   // BUG F: Fix mislabeled test. Test name said "passes when ..." but asserted failure.
   it("fails when coverage < threshold (default 0.7)", () => {

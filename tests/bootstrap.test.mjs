@@ -3,7 +3,8 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bootstrap } from "../scripts/bootstrap.mjs";
+import { bootstrap, decideCandidate } from "../scripts/bootstrap.mjs";
+import { tierRank } from "../scripts/lib/decision.mjs";
 
 // Mock GraphQL response state (for discover/score calls within bootstrap)
 let mockGraphQLResponse = "{}";
@@ -178,19 +179,46 @@ describe("bootstrap.mjs", () => {
   });
 
   describe("Named targets scoring", () => {
-    it("should score 12 named bootstrap targets", async () => {
-      // NAMED_TARGETS list:
-      // assafelovic/gpt-researcher
-      // ComposioHQ/agent-orchestrator
-      // HKUDS/OpenHarness
-      // multica-ai/multica
-      // safishamsi/graphify
-      // punkpeye/awesome-mcp-servers
-      // + 6 more
+    it("should score the 6 named bootstrap targets", async () => {
+      // NAMED_TARGETS list (6):
+      // assafelovic/gpt-researcher · ComposioHQ/agent-orchestrator · HKUDS/OpenHarness
+      // multica-ai/multica · safishamsi/graphify · punkpeye/awesome-mcp-servers
 
       const result = await bootstrap({ baseDir: tempDir });
 
       expect(result.named_targets_scored).toBeGreaterThanOrEqual(0);
+    });
+
+    it("QC: decideCandidate forwards a discovered candidate's verified safety (else fail-closed wrongly caps it to STUDY)", () => {
+      // A safety-verified, high-scoring, gap-filling, multi-family mcp-server candidate.
+      const inventory = {
+        gaps: [{ id: "eval-harness", priority: "high" }],
+        strategic_priorities: ["eval-harness"],
+        layers: {},
+      };
+      const base = {
+        nameWithOwner: "o/eval-harness-tool",
+        hint: { topics: ["eval", "harness"], description: "eval harness" },
+        source_trust: { family_count: 4 },
+        score: {
+          category: "mcp-server",
+          rubric_score: 95,
+          codex_score: 95,
+          niche_overlay_D9: 0,
+          coverage: 1,
+          dimensions: { D1: 9, D2: 9, D3: 9, D4: 9, D5: 9, D6: 9, D7: 9, D8: 9 },
+        },
+      };
+      const withSafety = decideCandidate(
+        { ...base, safety: { passedUpstream: true } },
+        inventory,
+        "eval harness",
+      );
+      const without = decideCandidate({ ...base }, inventory, "eval harness");
+
+      // Safety-verified → reaches an INSTALL tier; unverified → fail-closed to STUDY.
+      expect(tierRank(withSafety.decision.action)).toBeGreaterThan(tierRank("STUDY"));
+      expect(tierRank(without.decision.action)).toBeLessThanOrEqual(tierRank("STUDY"));
     });
 
     it("should include named targets even if discovery yields nothing", async () => {
@@ -220,15 +248,17 @@ describe("bootstrap.mjs", () => {
       );
     });
 
-    it("should sort candidates by score (descending)", async () => {
+    it("R6: ranks recommendations by the engine verdict (action tier, then final score)", async () => {
       const result = await bootstrap({ baseDir: tempDir });
 
-      if (result.recommendations.length > 1) {
-        // First recommendation should have >= score than second
-        for (let i = 0; i < result.recommendations.length - 1; i++) {
-          const current = result.recommendations[i].score?.rubric_score || 0;
-          const next = result.recommendations[i + 1].score?.rubric_score || 0;
-          expect(current).toBeGreaterThanOrEqual(next);
+      for (let i = 0; i < result.recommendations.length - 1; i++) {
+        const cur = result.recommendations[i];
+        const next = result.recommendations[i + 1];
+        const curTier = tierRank(cur.action);
+        const nextTier = tierRank(next.action);
+        expect(curTier).toBeGreaterThanOrEqual(nextTier); // higher action tier ranks first
+        if (curTier === nextTier) {
+          expect(cur.final_score ?? 0).toBeGreaterThanOrEqual(next.final_score ?? 0);
         }
       }
     });
@@ -262,6 +292,36 @@ describe("bootstrap.mjs", () => {
 
       expect(result.recommendations).toBeDefined();
       expect(result.recommendations.length).toBeLessThanOrEqual(20);
+    });
+
+    it("R1: persists decisions.jsonl (each line a parseable record the outcome loop reads)", async () => {
+      const result = await bootstrap({ baseDir: tempDir });
+
+      expect(result.decisions_file).toMatch(/inventory[\\/]decisions\.jsonl$/);
+      const content = await fs.readFile(result.decisions_file, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+      const records = lines.map((l) => JSON.parse(l)); // outcome.mjs does exactly this
+      const rec = records[0];
+      expect(rec).toHaveProperty("ts");
+      expect(rec).toHaveProperty("repo");
+      expect(rec).toHaveProperty("action");
+      expect(rec).toHaveProperty("schema_version");
+
+      // C2 provenance: one run_id for the whole bootstrap scan; decision_id unique per repo.
+      const runIds = new Set(records.map((r) => r.run_id));
+      expect(runIds.size).toBe(1);
+      expect([...runIds][0]).toBeTruthy();
+      const decisionIds = records.map((r) => r.decision_id);
+      expect(new Set(decisionIds).size).toBe(decisionIds.length); // unique per repo
+      expect(rec.decision_id).toBe(`${rec.run_id}::${rec.repo}`);
+    });
+
+    it("R1: writes a scan-*.md (reconciles the PR-body drift that referenced inventory/scan-*.md)", async () => {
+      await bootstrap({ baseDir: tempDir });
+
+      const files = await fs.readdir(join(tempDir, "inventory"));
+      expect(files.some((f) => /^scan-.*\.md$/.test(f))).toBe(true);
     });
   });
 

@@ -15,8 +15,44 @@
  * + validation so supplied evidence is well-formed and CoT can't leak into artifacts.
  */
 
-export const EVIDENCE_FIELDS = ["value", "source", "timestamp", "confidence", "rationale"];
+export const EVIDENCE_FIELDS = [
+  "value",
+  "source",
+  "timestamp",
+  "confidence",
+  "rationale",
+  "probe_status",
+];
 const MAX_RATIONALE = 280; // a short rationale, not a reasoning dump
+
+/**
+ * R7 (OpenSSF Scorecard outage handling): a structured-probe evidence item may record
+ * whether its upstream probe (e.g. api.scorecard.dev for D4) actually answered this run.
+ * GPT-5.5 verdict: an OpenSSF outage must NOT fail-closed (auto-reject / zero the value) —
+ * it produces a `probe_status` and CAPS confidence, preserving the soft-gate. The actual
+ * fetch happens in the live workflow (agent-side), never in this script.
+ *
+ * - `ok`          → probe answered; confidence flows through unchanged
+ * - `unavailable` → probe was down/unreachable; confidence is capped (value still flows)
+ * - `stale`       → only a cached/older probe result was usable; confidence is capped too
+ */
+export const PROBE_STATUSES = ["ok", "unavailable", "stale"];
+
+/** Confidence ceiling applied when a probe is `unavailable`/`stale` (or status is unknown). */
+export const DEGRADED_PROBE_CONFIDENCE_CAP = 0.5;
+
+/**
+ * Cap a confidence value for a degraded/unknown probe. A null confidence becomes the cap
+ * ceiling (a real upper bound — never invented precision above it); a present confidence
+ * is lowered to at most the cap and never raised.
+ * @param {number|null} confidence
+ * @param {number} [cap]
+ * @returns {number}
+ */
+export function capConfidenceForProbe(confidence, cap = DEGRADED_PROBE_CONFIDENCE_CAP) {
+  if (confidence == null) return cap;
+  return Math.min(confidence, cap);
+}
 const DISALLOWED = [
   "reasoning",
   "cot",
@@ -81,6 +117,25 @@ export function validateJudgeEvidence(item = {}) {
     }
   } else {
     clean.confidence = null;
+  }
+
+  // R7 probe_status: an `unavailable`/`stale` (or unknown) probe CAPS confidence — it never
+  // nulls/zeroes the value and never rejects the item (soft-gate: an OpenSSF outage is not a
+  // quality verdict). Default `ok`. An unknown status is flagged AND treated like `unavailable`
+  // (conservative: a malformed status must not pass through at full confidence).
+  if (item.probe_status == null) {
+    clean.probe_status = "ok";
+  } else if (PROBE_STATUSES.includes(item.probe_status)) {
+    clean.probe_status = item.probe_status;
+    if (item.probe_status !== "ok") {
+      clean.confidence = capConfidenceForProbe(clean.confidence);
+    }
+  } else {
+    errors.push(
+      `probe_status must be one of ${PROBE_STATUSES.join("|")} (got ${JSON.stringify(item.probe_status)})`,
+    );
+    clean.probe_status = "unavailable";
+    clean.confidence = capConfidenceForProbe(clean.confidence);
   }
 
   clean.rationale =

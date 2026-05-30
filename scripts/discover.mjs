@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { computeFinalScore } from "./lib/blend.mjs";
-import { routeDecision } from "./lib/decision.mjs";
+import { pathwayFromCategory } from "./lib/d3-pathway.mjs";
+import { compareByDecision, routeDecision } from "./lib/decision.mjs";
+import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
 import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
 import { ghGraphQL } from "./lib/gh-graphql.mjs";
 import { assessProvenance } from "./lib/provenance.mjs";
+import { selectSources } from "./lib/source-registry.mjs";
 import { scoreRepo } from "./score.mjs";
 
 // M-1: Use secure ghGraphQL helper instead of shell-based executeGraphQL
@@ -13,9 +17,13 @@ const executeGraphQL = ghGraphQL;
  * Returns candidates from GitHub with basic metadata
  */
 async function githubGraphQLSearch(topic, limit = 25) {
+  // Clamp `limit` to a bounded int before interpolating it into the GraphQL document (GitHub
+  // search caps `first` at 100). Defense-in-depth: never interpolate an unbounded/non-numeric
+  // value into a query string (code-review S2).
+  const first = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 25));
   const query = `
     query Search($q: String!, $cursor: String) {
-      search(query: $q, type: REPOSITORY, first: ${limit}, after: $cursor) {
+      search(query: $q, type: REPOSITORY, first: ${first}, after: $cursor) {
         repositoryCount
         pageInfo { hasNextPage endCursor }
         nodes {
@@ -121,29 +129,74 @@ async function semanticScholar(_topic, _limit = 25) {
 }
 
 /**
- * BUG C: Source-family canonicalization (2026-05-28). GitHub source variants
- * (github-search, github-advanced, github-topic, github-dependents) must collapse
- * to a single family else convergence inflates.
+ * R9 (anti-astroturf): canonicalize a candidate's IDENTITY before convergence counting.
+ *
+ * A repo and its forks / mirrors / registry-derivatives are the SAME origin and must NOT
+ * each contribute an independent identity (or family) — otherwise a single project mirrored
+ * across registries fakes multi-source convergence. We fold to the canonical origin using
+ * CANDIDATE-SUPPLIED evidence (`canonical` > `forkOf` > `mirrorOf`), normalized lowercase.
+ *
+ * Deeper resolution (a GitHub redirect-follow / parent-of-fork GraphQL lookup) is a
+ * WORKFLOW-SIDE concern — this stays a pure, cheap normalization (no network call).
+ *
+ * @param {{nameWithOwner:string, canonical?:string, forkOf?:string, mirrorOf?:string}} candidate
+ * @returns {string} the lowercased canonical "owner/repo" key
  */
-const FAMILY_CANON = {
-  "github-search": "github",
-  "github-advanced": "github",
-  "github-topic": "github",
-  "github-dependents": "github",
-  "github-graph": "github",
-  // Exa variants
-  "exa-web": "exa",
-  "exa-code": "exa",
-  "exa-deep": "exa",
-  // Tavily variants
-  "tavily-basic": "tavily",
-  "tavily-advanced": "tavily",
-  "tavily-research": "tavily",
-  // Jina variants
-  "jina-web": "jina",
-  "jina-arxiv": "jina",
-  "jina-research": "jina",
-};
+export function canonicalIdentity(candidate = {}) {
+  const origin =
+    candidate.canonical || candidate.forkOf || candidate.mirrorOf || candidate.nameWithOwner || "";
+  return String(origin).toLowerCase();
+}
+
+/**
+ * Source families that all derive from the SAME upstream origin and therefore must collapse
+ * to ONE independent family (Codex Q5 / rubric §3): GitHub-derived angles are one family;
+ * external AGGREGATORS (awesome-lists, registry badges) are a single `external-aggregator`
+ * family that can never ALONE satisfy the ≥3/≥4 convergence bar.
+ */
+const GITHUB_FAMILY = new Set(["github-search", "github-advanced", "github", "github-graphql"]);
+const AGGREGATOR_FAMILY_PATTERN = /awesome|registry|badge|curated-list|mcp-list/i;
+
+// F3 (live multi-source fan-out): fold a search ENGINE's tool-variants (e.g. exa-web/exa_web,
+// tavily-basic, jina-arxiv, brave_web_search) to ONE independent family, so a single engine queried
+// via multiple tools cannot fake multi-source convergence (R9 anti-astroturf — the pattern-based
+// counterpart to main's deferred FAMILY_CANON map). Anchored `^engine(?:[-_]|$)` — start, then a
+// `-`/`_` separator OR end-of-string. NOT `\b`: JS word-boundary treats `_` as a word char, so
+// `^exa\b` matched `exa-web` but NOT `exa_web` (GPT-5.5 QC MAJOR). The explicit separator both
+// closes the underscore gap AND keeps a similarly-prefixed unrelated source ("example") un-folded.
+const ENGINE_FAMILIES = [
+  { family: "exa", pattern: /^exa(?:[-_]|$)/ },
+  { family: "tavily", pattern: /^tavily(?:[-_]|$)/ },
+  { family: "jina", pattern: /^jina(?:[-_]|$)/ },
+  { family: "brave", pattern: /^brave(?:[-_]|$)/ },
+  { family: "semantic-scholar", pattern: /^(?:semantic[-_]?scholar|s2)(?:[-_]|$)/ },
+];
+
+/** Map a raw source label to its canonical INDEPENDENT family. */
+export function canonicalSourceFamily(source) {
+  const s = String(source || "unknown").toLowerCase();
+  if (GITHUB_FAMILY.has(s)) return "github";
+  if (AGGREGATOR_FAMILY_PATTERN.test(s)) return "external-aggregator";
+  for (const { family, pattern } of ENGINE_FAMILIES) {
+    if (pattern.test(s)) return family;
+  }
+  return s;
+}
+
+/**
+ * R9: count INDEPENDENT source families from raw source labels — GitHub-derived angles fold
+ * to one family, and ALL external aggregators fold to a single `external-aggregator` family
+ * (so an aggregator-only candidate can never alone reach ≥3/≥4). This is the family count the
+ * decision engine's convergence ACTION cap consumes.
+ *
+ * @param {string[]} sources
+ * @returns {number}
+ */
+export function countIndependentFamilies(sources = []) {
+  const families = new Set();
+  for (const src of sources) families.add(canonicalSourceFamily(src));
+  return families.size;
+}
 
 /**
  * NOVEL 1: Calculate source trust — structured object with diversity dimensions
@@ -159,15 +212,13 @@ function calculateSourceTrust(sources) {
     };
   }
 
-  // Count independent source families (e.g., GitHub-derived sources count as 1 family).
-  // Canonicalize variants so github-search/github-advanced/etc. all map to "github".
+  // Count independent source families. R9: fold GitHub-derived angles to one family and ALL
+  // external aggregators to a single `external-aggregator` family (canonicalSourceFamily), so
+  // mirrors/registry badges of one origin can never inflate the convergence count.
   const familyMap = new Map();
   sources.forEach((src) => {
-    let family = src.family || src.sources?.[0] || "unknown";
-    // Apply canonicalization: if the family is in FAMILY_CANON, use its canonical form
-    if (FAMILY_CANON[family]) {
-      family = FAMILY_CANON[family];
-    }
+    const raw = src.family || src.sources?.[0] || "unknown";
+    const family = canonicalSourceFamily(raw);
     if (!familyMap.has(family)) familyMap.set(family, 0);
     familyMap.set(family, familyMap.get(family) + 1);
   });
@@ -204,24 +255,37 @@ function calculateSourceTrust(sources) {
 
 /**
  * Phase 2: Convergence aggregation (in-process, no API)
- * Deduplicates candidates and counts sources per canonical name
+ * Deduplicates candidates and counts sources per CANONICAL identity.
+ *
+ * R9 (anti-astroturf): the dedup key is the CANONICAL ORIGIN (canonicalIdentity), so a repo
+ * and its forks/mirrors/registry-derivatives collapse to ONE candidate before family-counting
+ * — a single project mirrored across registries can no longer fake multi-source convergence.
+ * Family counting itself folds GitHub-derived angles to one family and all aggregators to a
+ * single `external-aggregator` family (calculateSourceTrust → canonicalSourceFamily).
  */
-function phase2Convergence(allResults) {
+export function phase2Convergence(allResults) {
   const canonicalMap = new Map();
 
   allResults.forEach((batch) => {
     batch.forEach((candidate) => {
-      const key = candidate.nameWithOwner.toLowerCase();
+      const key = canonicalIdentity(candidate);
       if (!canonicalMap.has(key)) {
+        // Preserve the original casing when NO fold happened (key == lowercased self); only
+        // switch the displayed identity to the canonical origin when a fork/mirror folded in.
+        const folded = key !== String(candidate.nameWithOwner || "").toLowerCase();
         canonicalMap.set(key, {
-          nameWithOwner: candidate.nameWithOwner,
+          nameWithOwner: folded ? key : candidate.nameWithOwner,
           sources: [],
           hint: candidate.hint,
         });
       }
       const entry = canonicalMap.get(key);
-      if (!entry.sources.includes(candidate.sources[0])) {
-        entry.sources.push(...candidate.sources);
+      // Per-source Set-union (S1 correctness): add EACH source the candidate carries that isn't
+      // already accumulated. The prior guard keyed only on sources[0] then pushed the whole array,
+      // which (a) dropped the rest when sources[0] was already present and (b) duplicated a later
+      // source when sources[0] was new. Iterating per-source folds in every distinct source once.
+      for (const src of candidate.sources || []) {
+        if (!entry.sources.includes(src)) entry.sources.push(src);
       }
     });
   });
@@ -388,19 +452,69 @@ async function hardFilterSingleRepo(candidate, scanCategory = null, retries = 3,
 }
 
 /**
+ * R3: derive the objective-relevance + adoption-pathway inputs the decision engine already
+ * consumes but never received in the live pipeline. Maps a candidate against the stack
+ * inventory (gap-fit → servesObjective / marginalValue) and its category → adoption pathway.
+ * Pure + exported so bootstrap.mjs gates identically (no engine<->workflow drift).
+ *
+ * @param {object} candidate - { nameWithOwner, hint?, category?, score?, fillsGapId?, duplicatesOf?, ... }
+ * @param {object} inventory - parsed config/stack-inventory.json (or {} when unavailable)
+ * @param {object} [opts] - { scanIntent?, category? }
+ * @returns {{servesObjective:boolean, marginalValue:string, adoptionPathway:(string|null), gapFit:object}}
+ */
+export function deriveDecisionInputs(
+  candidate = {},
+  inventory = {},
+  { scanIntent = "", category = null } = {},
+) {
+  const keywords = [
+    ...(candidate.hint?.topics || []),
+    ...String(candidate.hint?.description || "")
+      .split(/\s+/)
+      .filter(Boolean),
+  ];
+  const gapFit = assessGapFit(
+    {
+      name: candidate.nameWithOwner,
+      keywords,
+      fillsGapId: candidate.fillsGapId,
+      duplicatesOf: candidate.duplicatesOf,
+      outOfScope: candidate.outOfScope,
+      enhancesLayer: candidate.enhancesLayer,
+      betterThanInstalled: candidate.betterThanInstalled,
+    },
+    inventory,
+    { scanIntent },
+  );
+  const adoptionPathway = pathwayFromCategory(
+    category || candidate.category || candidate.score?.category,
+  );
+  return {
+    servesObjective: gapFit.servesObjective,
+    marginalValue: gapFit.marginalValue,
+    adoptionPathway,
+    gapFit,
+  };
+}
+
+/**
  * BLOCKER B-5 FIX: Phase 4: Score candidates using scoreRepo helper
  * Implements stage-2 rubric + dimension scoring
  * NOTE: Codex consensus and subagent dispatch deferred (requires MCP)
  */
-async function phase4Score(candidates, category = "code-library", baseDir = process.cwd()) {
+async function phase4Score(
+  candidates,
+  category = "code-library",
+  { baseDir = process.cwd(), scanIntent = "" } = {},
+) {
   const batchSize = 5; // Limit concurrency to respect API rate limits
 
   const scoredCandidates = [];
 
-  // BUG A: Load inventory once to avoid repeated file I/O
-  // Fail CLOSED — an empty fallback would silently disable objective gating in live
-  // scans. config/stack-inventory.json is tracked; a load failure is real misconfig,
-  // so stop loudly instead of mis-routing (CodeRabbit major).
+  // Load the stack inventory ONCE. Fail CLOSED — config/stack-inventory.json is tracked, so a
+  // load failure is real misconfig; an empty {} fallback would silently disable objective gating
+  // in a live scan (CodeRabbit major / ship-gate). R3: this feeds gap-fit (D11) →
+  // objectiveRelevanceGate. Guards the scan precondition, NOT a candidate verdict (soft-gate intact).
   let inventory;
   try {
     inventory = loadStackInventory(baseDir);
@@ -441,12 +555,13 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
             commits90d: scoreResult.evidence?.commits_90d,
           });
 
-          // BUG A & B: Assess gap-fit (D11) and extract adoption_pathway (D3) for the
-          // decision engine's objective-relevance gate and pathway veto.
-          const gapFit = assessGapFit(candidate, inventory, { scanIntent: category });
-          // Preserve the tri-state: undefined (unassessed) must NOT collapse to null, else
-          // the D3 pathway veto wrongly caps every candidate in a real run (Codex ship-gate).
-          const adoptionPathway = scoreResult.adoption_pathway;
+          // R3: derive the objective-relevance + adoption-pathway inputs the engine already
+          // consumes but never received — flipping objectiveRelevanceGate (gap-fit / marginal
+          // value) and d3PathwayVeto ("degree of adaptness") from no-ops to live gates.
+          const di = deriveDecisionInputs(candidate, inventory, {
+            scanIntent,
+            category: scoreResult.category || category,
+          });
 
           // Route to an action via the single decision engine. SAFETY was applied
           // in phase 3; quality flags + independent families feed the routing.
@@ -460,11 +575,9 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
             // fail-closed INSTALL gate is satisfied for legitimately-filtered candidates.
             safety: candidate.safety || {},
             provenance,
-            // BUG A: Gap-fit overlay wiring
-            servesObjective: gapFit.servesObjective,
-            marginalValue: gapFit.marginalValue,
-            // BUG B: Adoption pathway (D3) veto
-            adoptionPathway,
+            servesObjective: di.servesObjective,
+            marginalValue: di.marginalValue,
+            adoptionPathway: di.adoptionPathway,
           });
 
           return {
@@ -473,6 +586,10 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
             final_score: finalScore,
             action: decision.action,
             decision,
+            provenance_trustTier: provenance?.trustTier ?? null,
+            servesObjective: di.servesObjective,
+            marginalValue: di.marginalValue,
+            adoptionPathway: di.adoptionPathway,
             phase4_status: "SCORED",
           };
         } catch (err) {
@@ -495,6 +612,31 @@ async function phase4Score(candidates, category = "code-library", baseDir = proc
 }
 
 /**
+ * R4-safe (honest source run-status): the SINGLE source of truth for the 8 phase-1 angles.
+ *
+ * Each descriptor pairs a stable family `name` with `live` (does the IN-SCRIPT function
+ * actually query its source this run?) and the `fn` itself. ONLY `github-search` is live
+ * in-script today; the other 7 are MCP/workflow-only stubs that return `[]`. Live multi-source
+ * fan-out (Exa/Tavily/Brave/Jina/Firecrawl/Semantic-Scholar) is the WORKFLOW LAYER's job — the
+ * MCPs exist only inside an interactive Claude Code session, not in this headless script.
+ *
+ * CRITICAL (GPT-5.5 trap): stubs MUST keep returning `[]` (NOT `{status:'NOT_RUN'}`) — a
+ * status object inside a candidate batch would break `phase2Convergence`'s `batch.forEach`.
+ * Run-status is therefore recorded in a SEPARATE `sourceStatus` channel (see `discover()`),
+ * so a reader knows a low `family_count` means "only 1 source ran", not "low quality".
+ */
+export const PHASE1_SOURCES = [
+  { name: "github-search", live: true, fn: githubGraphQLSearch },
+  { name: "github-advanced", live: false, fn: githubGraphQLAdvanced },
+  { name: "awesome-list", live: false, fn: awesomeListCrawl },
+  { name: "exa", live: false, fn: exaSemanticSearch },
+  { name: "tavily", live: false, fn: tavilyResearch },
+  { name: "brave-search", live: false, fn: braveTriage },
+  { name: "jina", live: false, fn: jinaRecency },
+  { name: "semantic-scholar", live: false, fn: semanticScholar },
+];
+
+/**
  * Main discovery function
  */
 export async function discover({
@@ -504,22 +646,37 @@ export async function discover({
   budget: _budget = 10,
   sources: _sources = [],
   baseDir = process.cwd(),
+  persist = false, // explicit opt-in: the CLI entrypoint persists; library callers don't write by default
+  maxSources, // optional cap on phase-1 source breadth (budget); the github floor always survives
 }) {
   if (!topic) {
     throw new Error("topic required");
   }
 
-  // Phase 1: Parallel fan-out
-  const phase1 = await Promise.all([
-    githubGraphQLSearch(topic, limit),
-    githubGraphQLAdvanced(topic, limit),
-    awesomeListCrawl([]),
-    exaSemanticSearch(topic, limit),
-    tavilyResearch(topic, limit),
-    braveTriage(topic, limit),
-    jinaRecency(topic, limit),
-    semanticScholar(topic, limit),
-  ]);
+  // F4: rank the phase-1 sources by fit-to-(topic, category) BEFORE querying (RAG-MCP / MCP-Zero:
+  // retrieve+rank before the model sees them). selectSources is the deterministic FLOOR — github
+  // always survives, so the fan-out never empties even on a relevance miss. The SKILL.md WORKFLOW
+  // follows this same plan to call the REAL MCP sources (exa/tavily/jina/brave/semantic-scholar);
+  // in this headless script only the `live` in-script fns produce data (the rest return []).
+  const sourcePlan = selectSources(topic, category, { maxSources });
+  const plannedNames = new Set(sourcePlan.map((s) => s.name));
+
+  // Phase 1: Parallel fan-out over the SELECTED sources (relevance-ranked, budget-bounded). Every
+  // source returns an ARRAY of candidates (stubs return []) — never a status object — so
+  // phase2Convergence's batch.forEach is safe (GPT-5.5 trap). Run-status is tracked SEPARATELY.
+  const phase1 = await Promise.all(
+    PHASE1_SOURCES.filter((s) => plannedNames.has(s.name)).map((s) => s.fn(topic, limit)),
+  );
+
+  // R4-safe: honest source run-status in a SEPARATE channel (NOT inside the candidate arrays).
+  // A source RAN only if it is a `live` in-script source AND was selected this scan; the rest are
+  // NOT_RUN (a stub, or de-selected by relevance). This tells a reader that a low family_count
+  // reflects "only 1 source ran" (currently just github-search), not low quality. The real
+  // non-GitHub MCP calls are the WORKFLOW layer's job — surfaced via sourcePlan on the return.
+  const sourceStatus = PHASE1_SOURCES.map((s) => ({
+    source: s.name,
+    status: s.live && plannedNames.has(s.name) ? "RUN" : "NOT_RUN",
+  }));
 
   // Phase 2: Convergence aggregation
   const phase2 = phase2Convergence(phase1);
@@ -527,18 +684,73 @@ export async function discover({
   // Phase 3: Hard-filter batch
   const phase3 = await phase3HardFilter(phase2, category);
 
-  // Phase 4: Stage-2 score + Codex consensus
-  const phase4 = await phase4Score(phase3, category, baseDir);
+  // Phase 4: Stage-2 score + Codex consensus (R3: pass baseDir for the stack inventory +
+  // the topic as scanIntent so gap-fit prioritizes against the user's stated objective).
+  const phase4 = await phase4Score(phase3, category, { baseDir, scanIntent: topic });
 
-  // Write inventory/scan-<ISO-ts>.md
+  // R6: rank by the engine verdict so scan-<ts>.md, decisions.jsonl, and the returned list are
+  // ordered by what the pipeline DECIDED (action → score → coverage → marginal value), not by
+  // batch order or source appearance-count. SCORE_FAILED candidates (no action) sort last.
+  phase4.sort((a, b) =>
+    compareByDecision(
+      {
+        action: a.action,
+        score: a.final_score,
+        coverage: a.score?.coverage,
+        marginalValue: a.marginalValue,
+      },
+      {
+        action: b.action,
+        score: b.final_score,
+        coverage: b.score?.coverage,
+        marginalValue: b.marginalValue,
+      },
+    ),
+  );
+
+  // R1 (2026-05-29 convergence wiring): persist the decision envelopes + a human-readable
+  // scan markdown so the self-improvement loop (outcome.mjs), audit trail, and comparison
+  // corpus stop being data-starved. The SAFETY/QUALITY soft-gate verdict already lives on
+  // each candidate.decision; this just makes it durable. baseDir keeps tests + CI isolated.
   const timestamp = new Date().toISOString();
   const scanFileName = `inventory/scan-${timestamp.split("T")[0]}-${timestamp.split("T")[1].split(".")[0].replace(/:/g, "")}.md`;
 
-  // TODO: Write scan output file with ranked recommendations
+  // C2 provenance: ONE run_id per scan (ISO timestamp + a short random suffix) so every
+  // decisions.jsonl record from this run shares it; decision_id (runId::repo) is unique per repo.
+  // Cross-run dedup is the consumer's job (deferred calibration) — this just stamps the lineage.
+  const runId = `${timestamp}-${randomUUID().slice(0, 8)}`;
+
+  const decisions = phase4
+    .filter((c) => c?.decision?.action)
+    .map((c) =>
+      buildDecisionRecord({
+        repo: c.nameWithOwner,
+        category: c.score?.category || category,
+        finalScore: c.final_score,
+        decision: c.decision,
+        dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+        coverage: c.score?.coverage ?? null,
+        provenanceTrustTier: c.provenance_trustTier ?? null,
+        servesObjective: c.servesObjective ?? null,
+        marginalValue: c.marginalValue ?? null,
+        adoptionPathway: c.adoptionPathway ?? null,
+        runId,
+      }),
+    );
+
+  let decisionsFile = null;
+  if (persist) {
+    decisionsFile = appendDecisions(decisions, { baseDir }).file;
+    writeScanMarkdown(decisions, { baseDir, scanFile: scanFileName, topic });
+  }
 
   return {
     candidates: phase4,
     scanFile: scanFileName,
+    decisionsFile,
+    decisions,
+    sourceStatus,
+    sourcePlan,
   };
 }
 
@@ -562,7 +774,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  discover({ topic, category, limit, budget }).catch((err) => {
+  discover({ topic, category, limit, budget, persist: true }).catch((err) => {
     console.error(err.message);
     process.exit(1);
   });

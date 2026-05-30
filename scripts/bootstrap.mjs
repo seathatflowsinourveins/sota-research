@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { discover } from "./discover.mjs";
+import { deriveDecisionInputs, discover } from "./discover.mjs";
 import { computeFinalScore } from "./lib/blend.mjs";
-import { routeDecision } from "./lib/decision.mjs";
-import { assessGapFit, loadStackInventory } from "./lib/gap-fit.mjs";
+import { compareByDecision, routeDecision } from "./lib/decision.mjs";
+import { appendDecisions, buildDecisionRecord, writeScanMarkdown } from "./lib/decision-log.mjs";
+import { loadStackInventory } from "./lib/gap-fit.mjs";
 import { scoreRepo } from "./score.mjs";
 
 /**
@@ -55,6 +57,43 @@ function printDryRun(topicsToProcess, NAMED_TARGETS) {
 }
 
 /**
+ * Decide one candidate via the single decision engine. Used for BOTH the markdown table
+ * and the persisted decisions.jsonl record (R1), so the human view + audit log never diverge.
+ */
+export function decideCandidate(c, inventory = {}, scanIntent = "") {
+  const rubricScore = c.score?.rubric_score || 0;
+  const codexScore = c.score?.codex_score || 0;
+  const sourceCount = c.source_count || 1;
+  // Codex MAJOR fix: source_trust is top-level (not under .score) — read it there ONLY.
+  const sourceTrust = c.source_trust || null;
+  const category = c.score?.category || "unknown";
+  const finalScore = computeFinalScore({
+    rubric_score: rubricScore,
+    codex_score: codexScore,
+    source_count: sourceCount,
+    sourceTrust,
+  });
+  const families = sourceTrust?.family_count ?? sourceCount;
+  // R3: gate bootstrap's decisions on gap-fit + adoption-pathway too (same engine inputs as
+  // discover's phase4Score) so both runtime faces route identically — INCLUDING forwarding a
+  // discovered candidate's verified safety (QC fix, GPT-5.5 convergence). Without it, routeDecision's
+  // fail-closed INSTALL gate silently caps safety-verified discovery candidates to STUDY here. Named
+  // targets carry no safety, so they correctly stay fail-closed to STUDY (their safety was never verified).
+  const di = deriveDecisionInputs(c, inventory, { scanIntent, category });
+  const decision = routeDecision({
+    score: finalScore,
+    families,
+    category,
+    dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+    safety: c.safety || {},
+    servesObjective: di.servesObjective,
+    marginalValue: di.marginalValue,
+    adoptionPathway: di.adoptionPathway,
+  });
+  return { finalScore, families, category, sourceCount, decision, di };
+}
+
+/**
  * Main bootstrap function
  */
 export async function bootstrap({
@@ -100,6 +139,8 @@ export async function bootstrap({
       category: t.category,
       limit: 30,
       budget: 10,
+      baseDir,
+      persist: false, // bootstrap persists the unified merged+sorted set once (avoids dup)
     }).catch((err) => {
       console.warn(`Discovery failed for topic ${t.topic}: ${err.message}`);
       return { candidates: [] };
@@ -142,17 +183,10 @@ export async function bootstrap({
     }
   });
 
-  // Sort by score (descending)
-  const sorted = Array.from(uniqueCandidates.values()).sort((a, b) => {
-    const aScore = a.score?.rubric_score || 0;
-    const bScore = b.score?.rubric_score || 0;
-    return bScore - aScore;
-  });
-
-  // Load inventory once for gap-fit. Fail CLOSED — an empty fallback would silently
-  // disable objective gating (everything passes as servesObjective). config/stack-
-  // inventory.json is tracked, so a load failure is real misconfiguration: stop the
-  // scan loudly instead of mis-routing (CodeRabbit major).
+  // Load the stack inventory once for gap-fit gating. Fail CLOSED — config/stack-inventory.json
+  // is tracked, so a load failure is real misconfig; an empty {} fallback would silently disable
+  // objective gating (everything passes as servesObjective). Guards the scan precondition, not a
+  // verdict (soft-gate intact). R3: feeds gap-fit (D11) → objectiveRelevanceGate via decideCandidate.
   let inventory;
   try {
     inventory = loadStackInventory(baseDir);
@@ -161,6 +195,29 @@ export async function bootstrap({
       `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
     );
   }
+
+  // Decide every candidate ONCE via the single engine — reused by the markdown table AND the
+  // persisted decisions.jsonl record so the human view + audit log never diverge (R1).
+  // R6: rank by the ENGINE VERDICT (action tier → score → coverage → marginal value), NOT by
+  // raw rubric_score or source appearance-count.
+  const decided = Array.from(uniqueCandidates.values())
+    .map((c) => ({ candidate: c, ...decideCandidate(c, inventory, topic || "") }))
+    .sort((a, b) =>
+      compareByDecision(
+        {
+          action: a.decision.action,
+          score: a.finalScore,
+          coverage: a.candidate.score?.coverage,
+          marginalValue: a.di?.marginalValue,
+        },
+        {
+          action: b.decision.action,
+          score: b.finalScore,
+          coverage: b.candidate.score?.coverage,
+          marginalValue: b.di?.marginalValue,
+        },
+      ),
+    );
 
   // Write inventory/bootstrap-<ISO-date>.md
   const now = new Date();
@@ -173,48 +230,13 @@ export async function bootstrap({
     `## Summary`,
     `- Discovery topics: ${topicsToProcess.length}`,
     `- Named targets scored: ${NAMED_TARGETS.length}`,
-    `- Unique candidates: ${sorted.length}`,
+    `- Unique candidates: ${decided.length}`,
     "",
-    `## Recommendations (sorted by score)`,
+    `## Recommendations (ranked by decision verdict)`,
     `| Score | Repo | Category | Sources | Rationale |`,
     `|---|---|---|---|---|`,
-    ...sorted.map((c) => {
-      const rubricScore = c.score?.rubric_score || 0;
-      const codexScore = c.score?.codex_score || 0;
-      const sourceCount = c.source_count || 1;
-      // Codex MAJOR fix: discovery stores source_trust top-level (not under .score),
-      // so convergence caps were being bypassed. Read top-level ONLY (no .score fallback,
-      // which would mask the wrong-location bug — Codex re-gate).
-      const sourceTrust = c.source_trust || null;
-      const category = c.score?.category || "unknown";
-
-      // Use computeFinalScore to get blended score with post-blend caps (B-4)
-      const finalScore = computeFinalScore({
-        rubric_score: rubricScore,
-        codex_score: codexScore,
-        source_count: sourceCount,
-        sourceTrust,
-      });
-
-      // BUG A & B: Assess gap-fit and extract adoption pathway
-      const gapFit = assessGapFit(c, inventory, { scanIntent: category });
-      const adoptionPathway = c.score?.adoption_pathway || null;
-
-      // Decision routing via the single decision engine (soft gate + multi-factor
-      // floors + convergence ACTION cap by independent families).
-      const families = sourceTrust?.family_count ?? sourceCount;
-      const { action } = routeDecision({
-        score: finalScore,
-        families,
-        category,
-        dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
-        // BUG A: Gap-fit overlay wiring
-        servesObjective: gapFit.servesObjective,
-        marginalValue: gapFit.marginalValue,
-        // BUG B: Adoption pathway (D3) veto
-        adoptionPathway,
-      });
-      const rationale = `Score ${finalScore.toFixed(1)} (${families} families) — ${action}`;
+    ...decided.map(({ candidate: c, finalScore, families, category, sourceCount, decision }) => {
+      const rationale = `Score ${finalScore.toFixed(1)} (${families} families) — ${decision.action}`;
       return `| ${finalScore.toFixed(1)} | ${c.nameWithOwner} | ${category} | ${sourceCount} | ${rationale} |`;
     }),
     "",
@@ -227,12 +249,50 @@ export async function bootstrap({
     console.warn(`Could not write bootstrap file: ${err.message}`);
   }
 
+  // R1: persist the decision envelopes + a scan-<ts>.md (the filename the SOTA-scan PR body
+  // references). discover() was called with persist:false above, so each candidate is logged
+  // exactly once, here, from the unified merged set.
+  // C2 provenance: ONE run_id for the whole bootstrap scan (ISO timestamp + short random suffix);
+  // every record shares it, decision_id (runId::repo) is unique per repo. Cross-run dedup is the
+  // consumer's job (deferred calibration).
+  const runId = `${now.toISOString()}-${randomUUID().slice(0, 8)}`;
+  const decisionRecords = decided.map(({ candidate: c, finalScore, category, decision, di }) =>
+    buildDecisionRecord({
+      repo: c.nameWithOwner,
+      category,
+      finalScore,
+      decision,
+      dims: { ...(c.score?.dimensions || {}), D9: c.score?.niche_overlay_D9 },
+      coverage: c.score?.coverage ?? null,
+      servesObjective: di?.servesObjective ?? null,
+      marginalValue: di?.marginalValue ?? null,
+      adoptionPathway: di?.adoptionPathway ?? null,
+      runId,
+    }),
+  );
+  let decisionsFile = null;
+  try {
+    decisionsFile = appendDecisions(decisionRecords, { baseDir }).file;
+    const ts = now.toISOString();
+    const scanFile = `inventory/scan-${ts.split("T")[0]}-${ts.split("T")[1].split(".")[0].replace(/:/g, "")}.md`;
+    writeScanMarkdown(decisionRecords, { baseDir, scanFile, topic: topic || "bootstrap" });
+  } catch (err) {
+    console.warn(`Could not persist decisions: ${err.message}`);
+  }
+
   return {
     candidates_discovered: allCandidates.length,
     named_targets_scored: namedScores.length,
-    unique_candidates: sorted.length,
+    unique_candidates: decided.length,
     bootstrap_file: bootstrapFile,
-    recommendations: sorted.slice(0, 20), // Top 20
+    decisions_file: decisionsFile,
+    // R6: recommendations carry the engine verdict (action/final_score) and are ranked by it,
+    // not by raw rubric_score — so callers + tests inspect what the pipeline actually decided.
+    recommendations: decided.slice(0, 20).map(({ candidate, decision, finalScore }) => ({
+      ...candidate,
+      action: decision.action,
+      final_score: finalScore,
+    })),
   };
 }
 
