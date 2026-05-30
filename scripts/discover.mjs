@@ -156,11 +156,27 @@ export function canonicalIdentity(candidate = {}) {
 const GITHUB_FAMILY = new Set(["github-search", "github-advanced", "github", "github-graphql"]);
 const AGGREGATOR_FAMILY_PATTERN = /awesome|registry|badge|curated-list|mcp-list/i;
 
+// F3 (live multi-source fan-out): fold a search ENGINE's tool-variants (e.g. exa-web/exa-code,
+// tavily-basic, jina-arxiv, brave-news) to ONE independent family, so a single engine queried via
+// multiple tools cannot fake multi-source convergence (R9 anti-astroturf — the pattern-based
+// counterpart to main's deferred FAMILY_CANON map). Anchored `^engine\b` (start + word boundary)
+// so a similarly-prefixed unrelated source (e.g. "example") never false-folds to "exa".
+const ENGINE_FAMILIES = [
+  { family: "exa", pattern: /^exa\b/ },
+  { family: "tavily", pattern: /^tavily\b/ },
+  { family: "jina", pattern: /^jina\b/ },
+  { family: "brave", pattern: /^brave\b/ },
+  { family: "semantic-scholar", pattern: /^(?:semantic-?scholar|s2)\b/ },
+];
+
 /** Map a raw source label to its canonical INDEPENDENT family. */
 export function canonicalSourceFamily(source) {
   const s = String(source || "unknown").toLowerCase();
   if (GITHUB_FAMILY.has(s)) return "github";
   if (AGGREGATOR_FAMILY_PATTERN.test(s)) return "external-aggregator";
+  for (const { family, pattern } of ENGINE_FAMILIES) {
+    if (pattern.test(s)) return family;
+  }
   return s;
 }
 

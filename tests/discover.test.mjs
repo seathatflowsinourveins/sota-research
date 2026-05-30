@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalIdentity,
+  canonicalSourceFamily,
   countIndependentFamilies,
   discover,
   PHASE1_SOURCES,
@@ -526,6 +527,39 @@ describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting 
     it("a genuine multi-family candidate (real source + aggregator) still counts the real source", () => {
       // github-search (1 real family) + two aggregators (1 aggregator family) = 2 families.
       expect(countIndependentFamilies(["github-search", "awesome-list", "registry-badge"])).toBe(2);
+    });
+  });
+
+  describe("canonicalSourceFamily — engine variants fold to ONE family (F3, anti-astroturf)", () => {
+    it("folds exa/tavily/jina/brave tool-variants to their single engine family", () => {
+      expect(canonicalSourceFamily("exa-web")).toBe("exa");
+      expect(canonicalSourceFamily("exa-code")).toBe("exa");
+      expect(canonicalSourceFamily("tavily-basic")).toBe("tavily");
+      expect(canonicalSourceFamily("tavily-research")).toBe("tavily");
+      expect(canonicalSourceFamily("jina-arxiv")).toBe("jina");
+      expect(canonicalSourceFamily("brave-news")).toBe("brave");
+      expect(canonicalSourceFamily("brave-search")).toBe("brave");
+    });
+
+    it("folds semantic-scholar variants (incl. s2) to one family", () => {
+      expect(canonicalSourceFamily("semantic-scholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("semanticscholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("s2")).toBe("semantic-scholar");
+    });
+
+    it("does NOT false-fold a similarly-prefixed unrelated source", () => {
+      expect(canonicalSourceFamily("example")).toBe("example"); // not 'exa'
+      expect(canonicalSourceFamily("bravado")).toBe("bravado"); // not 'brave'
+    });
+
+    it("counts one engine queried via multiple tools as ONE independent family (anti-astroturf)", () => {
+      expect(countIndependentFamilies(["exa-web", "exa-code", "exa-deep"])).toBe(1);
+    });
+
+    it("counts distinct engines as distinct families", () => {
+      expect(
+        countIndependentFamilies(["github-search", "exa-web", "tavily-basic", "jina-arxiv"]),
+      ).toBe(4);
     });
   });
 
