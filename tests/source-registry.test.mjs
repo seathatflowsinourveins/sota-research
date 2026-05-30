@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SOURCE_REGISTRY, selectSources } from "../scripts/lib/source-registry.mjs";
+import { phase2Convergence } from "../scripts/discover.mjs";
+import {
+  extractRepoIdentity,
+  normalizeCandidate,
+  SOURCE_REGISTRY,
+  selectSources,
+} from "../scripts/lib/source-registry.mjs";
 
 // F1 (G1 live multi-source fan-out): selectSources is the DETERMINISTIC FLOOR of the two-tier
 // routing gate (gpt-researcher MCPToolSelector + _fallback_tool_selection). It pattern-ranks the
@@ -78,5 +84,76 @@ describe("selectSources (G1 — deterministic relevance floor; gpt-researcher MC
     expect(selected.length).toBe(2);
     expect(selected[0].name).toBe("semantic-scholar"); // strongest academic source still leads
     expect(selected.some((s) => s.name === "github-search")).toBe(true);
+  });
+});
+
+describe("extractRepoIdentity (F2 — pull the GitHub repo a source result references)", () => {
+  it("extracts owner/repo from a github.com URL", () => {
+    expect(extractRepoIdentity({ url: "https://github.com/assafelovic/gpt-researcher" })).toBe(
+      "assafelovic/gpt-researcher",
+    );
+  });
+
+  it("extracts from a github URL embedded in free text and strips path / .git / query / hash", () => {
+    expect(
+      extractRepoIdentity({ text: "great tool: https://github.com/owner/repo/tree/main here" }),
+    ).toBe("owner/repo");
+    expect(extractRepoIdentity({ url: "http://www.github.com/owner/repo.git" })).toBe("owner/repo");
+    expect(extractRepoIdentity({ snippet: "https://github.com/owner/repo?tab=readme" })).toBe(
+      "owner/repo",
+    );
+    expect(extractRepoIdentity({ url: "https://github.com/owner/repo#install" })).toBe(
+      "owner/repo",
+    );
+  });
+
+  it("returns null when no github repo is referenced", () => {
+    expect(extractRepoIdentity({ url: "https://example.com/blog", title: "x" })).toBeNull();
+    expect(extractRepoIdentity({})).toBeNull();
+  });
+
+  it("ignores non-repo github paths (owner-only, sponsors, topics, gist)", () => {
+    expect(extractRepoIdentity({ url: "https://github.com/sponsors/owner" })).toBeNull();
+    expect(extractRepoIdentity({ url: "https://github.com/topics/mcp" })).toBeNull();
+    expect(extractRepoIdentity({ url: "https://github.com/owner" })).toBeNull();
+    expect(extractRepoIdentity({ url: "https://gist.github.com/owner/abc123" })).toBeNull();
+  });
+});
+
+describe("normalizeCandidate (F2 — uniform shape for phase2Convergence, family-tagged by source)", () => {
+  it("passes through an already-shaped github candidate, tagging the source", () => {
+    const out = normalizeCandidate({ nameWithOwner: "o/r", hint: { stars: 100 } }, "github-search");
+    expect(out.nameWithOwner).toBe("o/r");
+    expect(out.sources).toEqual(["github-search"]);
+  });
+
+  it("normalizes a web result that references a github repo into the convergence shape", () => {
+    const out = normalizeCandidate(
+      {
+        title: "gpt-researcher",
+        url: "https://github.com/assafelovic/gpt-researcher",
+        text: "LLM research agent",
+      },
+      "exa",
+    );
+    expect(out.nameWithOwner).toBe("assafelovic/gpt-researcher");
+    expect(out.sources).toEqual(["exa"]);
+    expect(out.hint.url).toBe("https://github.com/assafelovic/gpt-researcher");
+    expect(out.hint.title).toBe("gpt-researcher");
+  });
+
+  it("returns null when the result references no github repo (workflow drops it pre-convergence)", () => {
+    expect(
+      normalizeCandidate({ title: "a blog", url: "https://example.com" }, "tavily"),
+    ).toBeNull();
+  });
+
+  it("produces a shape phase2Convergence consumes — multi-source mention = real family convergence", () => {
+    const a = normalizeCandidate({ url: "https://github.com/o/r" }, "exa");
+    const b = normalizeCandidate({ nameWithOwner: "o/r", hint: {} }, "github-search");
+    const merged = phase2Convergence([[a], [b]]);
+    expect(merged).toHaveLength(1); // same repo, deduped by canonicalIdentity
+    expect(merged[0].source_list.slice().sort()).toEqual(["exa", "github-search"]);
+    expect(merged[0].source_trust.family_count).toBe(2); // exa + github = 2 independent families
   });
 });

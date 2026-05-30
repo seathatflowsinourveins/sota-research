@@ -190,3 +190,103 @@ export function selectSources(
     reason,
   }));
 }
+
+/** GitHub URL paths that are NOT a repo (reserved owners / product namespaces). */
+const GITHUB_RESERVED_OWNERS = new Set([
+  "sponsors",
+  "orgs",
+  "topics",
+  "marketplace",
+  "features",
+  "about",
+  "pricing",
+  "settings",
+  "notifications",
+  "explore",
+  "search",
+  "collections",
+  "events",
+  "login",
+  "join",
+  "new",
+  "apps",
+  "customer-stories",
+  "readme",
+  "security",
+  "enterprise",
+  "site",
+  "contact",
+  "blog",
+  "users",
+]);
+
+/**
+ * Extract the GitHub `owner/repo` a source result references — from its url/href/link or any
+ * free-text field (title/text/snippet/description/abstract/content). Returns null when no github
+ * repo is referenced or the first match is a reserved (non-repo) namespace. Pure; no network.
+ *
+ * This is what turns a heterogeneous web/academic hit into a convergence signal: a repo mentioned
+ * by a web result AND surfaced by github-search becomes a multi-family candidate (R9 family-count).
+ *
+ * @param {object} result - a raw source result (web/academic/code)
+ * @returns {string|null} "owner/repo" (original case) or null
+ */
+export function extractRepoIdentity(result = {}) {
+  const haystack = [
+    result.url,
+    result.href,
+    result.link,
+    result.title,
+    result.text,
+    result.snippet,
+    result.description,
+    result.abstract,
+    result.content,
+  ]
+    .filter((v) => typeof v === "string")
+    .join(" ");
+
+  // Match github.com/<owner>/<repo>, but NOT gist.github.com (a gist is not a repo). Segments are
+  // [A-Za-z0-9._-]; the match stops at the next /, #, ?, whitespace, or end.
+  const re = /(?<!gist\.)github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/g;
+  for (const m of haystack.matchAll(re)) {
+    const owner = m[1];
+    if (GITHUB_RESERVED_OWNERS.has(owner.toLowerCase())) continue;
+    const repo = m[2].replace(/\.git$/i, "").replace(/\.+$/, "");
+    if (!repo) continue;
+    return `${owner}/${repo}`;
+  }
+  return null;
+}
+
+/**
+ * Normalize a raw source result into the uniform candidate shape `phase2Convergence` consumes:
+ * `{ nameWithOwner, sources:[source], hint }`. An already-shaped github candidate passes through
+ * (its `nameWithOwner` + structured `hint` are authoritative); any other source result is reduced
+ * to the GitHub repo it references (`extractRepoIdentity`). Returns null when no repo identity is
+ * extractable, so the workflow drops non-repo results BEFORE convergence — they cannot be scored
+ * as repos and must not inflate the candidate set.
+ *
+ * gpt-researcher pattern: normalize EVERY tool result into one uniform record before use, so
+ * heterogeneous sources converge on a single comparable shape. Family tagging is downstream
+ * (`canonicalSourceFamily` maps `source` → its independent family).
+ *
+ * @param {object} result
+ * @param {string} source - the source label (becomes `sources:[source]`)
+ * @returns {{nameWithOwner:string, sources:string[], hint:object}|null}
+ */
+export function normalizeCandidate(result = {}, source = "unknown") {
+  const nameWithOwner = result.nameWithOwner || extractRepoIdentity(result);
+  if (!nameWithOwner) return null;
+
+  // Preserve a structured hint when the source already supplies one (github-search:
+  // stars/topics/pushedAt); otherwise build a uniform hint from whatever fields exist.
+  const hint = result.hint || {
+    title: result.title ?? null,
+    url: result.url ?? result.href ?? result.link ?? null,
+    description: result.description ?? result.text ?? result.snippet ?? result.abstract ?? null,
+    source,
+  };
+
+  return { nameWithOwner, sources: [source], hint };
+}
