@@ -9,7 +9,7 @@
 - **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; PR #11 → `main`).
 - **Baseline:** **233 tests pass, Biome clean (45 files)** — after converging `origin/main` (PR#10) into this branch.
 - **Last completed (2026-05-29 session 2):** **CONVERGENCE MERGE `5a02ceb`.** `origin/main` advanced 7 commits via PR#10 (D3/D6 production wiring, ship-gate, fail-closed inventory) after the v3.1 handoff, leaving PR #11 `CONFLICTING`. Merged `origin/main` in (`-X ours` for the 9 discover.mjs + 2 bootstrap.mjs conflicts — every one was the v3.1 superset of main's earlier independent fix), KEPT main's reviewed fail-closed inventory + removed a silent auto-merge duplicate-`inventory` hazard, and reconciled 3 test divergences (BUG E `build_not_install`→`servesObjective:false` canonical; seed `config/stack-inventory.json` in 2 R1 tests). 229→233 green, no production fix dropped. (Prior v3.1 program complete: 20 commits `ef02772..4ca12a7`, GPT-5.5 QC PASS.)
-- **Next slice:** QC — GPT-5.5 @ xhigh convergence QC → qc-manifest, then push → PR #11. F1–F5 done (265 green).
+- **Next slice:** NONE — fan-out (F1–F5) + QC COMPLETE. **267 green, biome clean, GPT-5.5 @ xhigh QC = PASS** ([qc-manifest-2026-05-29-fanout.md](../../research/qc-manifest-2026-05-29-fanout.md)). Pushing → PR #11.
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
 
 ## Deferred #1 — LIVE multi-source discovery fan-out (gap G1) — un-defers R5
@@ -21,7 +21,7 @@
 - [x] **F3** — extend `canonicalSourceFamily` (discover.mjs) to fold engine variants (`exa-*`/`tavily-*`/`jina-*`/`brave*`/`semantic-scholar`) → one family each (absorbs main's deferred `FAMILY_CANON` intent). **5 tests (incl. no-false-fold guard + one-engine-many-tools=1-family); 254 green.** Pattern-based (`^engine\b`), so new tool-variants fold automatically.
 - [x] **F4** — wired into `discover()` fan-out (selectSources drives which sources are queried, relevance-ranked + budget-bounded via `maxSources`; returns `sourcePlan`; honest plan-aware sourceStatus) + `SKILL.md` phase-1 workflow prose (6 real MCP tools mapped → normalizeCandidate → phase2Convergence → engine → decision-envelope; soft-gate sacred). Moved `live-multi-source-fanout` from R13 `KNOWN_BACKLOG` → wired producer (`selectSources`). **4 discover tests + 1 contract test; 259 green; stale-ref check passed.**
 - [x] **F5** — R5 Top-N matrix pure-projection renderer (`scripts/lib/top-n-matrix.mjs` `renderTopNMatrix`): rows × [D1–D8, Score, Tier, Pathway, Families, Provenance, GapFit], verdict-ranked, **null below 2 same-category** (the mostly-empty-rows guard). Wired into SKILL.md workflow step 7. **6 tests; 265 green.** Un-deferred because F1–F4 made ≥2 same-category routine (ADR-R5 precondition met).
-- [ ] **QC** — GPT-5.5 @ xhigh convergence QC (codex exec, confirm model from telemetry) → append `docs/research/qc-manifest-*`. Then push → PR #11.
+- [x] **QC** — GPT-5.5 @ xhigh convergence QC (telemetry-confirmed `gpt-5.5`/`xhigh`): found 2 MAJOR + 1 MINOR (underscore family-fold gap via JS `\b`; null-crash in normalize/extract; an over-claiming JSDoc), all fixed via TDD (`e07d175`), then **RECONFIRM: PASS** on the post-fix state. → `docs/research/qc-manifest-2026-05-29-fanout.md`. **267 green, biome clean.**
 
 ## Sequencing (GPT-5.5-validated dependency order)
 
