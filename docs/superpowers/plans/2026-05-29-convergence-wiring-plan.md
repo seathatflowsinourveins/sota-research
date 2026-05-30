@@ -6,11 +6,22 @@
 
 ## ⏯️ RESUME HERE — update after every verified slice
 
-- **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; continues `feature/research-arch-v3`).
-- **Baseline:** 169 tests pass, Biome clean (verified at session start).
-- **Last completed:** Review resolution + SOTA grounding + final convergence gate, all verified. (1) Review fixes `d124c4d` (C1 rubric-contract decoupled, S2 limit-clamp, S3 path-containment) + `07892a9` S1 / `b76afc0` S4 / `0875447` C2. (2) Architecture GROUNDED in SOTA refs: `inventory/references.md` + `patterns/<owner>/<repo>/sota-distill.md` for gpt-researcher / open_deep_research / CLI-Anything / DeepResearch (grounding workflow `wvsbmfd1e`, repomix+deepwiki) → `b89373d`. (3) Final cross-model convergence pass verdict = SOUND, all 6 findings RESOLVED; its one minor catch (FS-root path-containment edge) fixed `9edd47c`. **228 tests pass, `biome check .` clean (45 files).** CAVEAT: the Codex gate reported running as GPT-5 (could NOT confirm gpt-5.5 was honored despite `-m gpt-5.5`) — logged for verification (codex model drift).
-- **Next slice:** NONE — v3.1 program + review resolution + SOTA grounding COMPLETE (17 commits `ef02772..9edd47c`). Open a PR into the `feature/research-arch-v3` line when ready. Deferred work lives in the ADR with revive-preconditions.
+- **Branch:** `claude/gifted-shannon-d8930c` (isolated worktree; PR #11 → `main`).
+- **Baseline:** **233 tests pass, Biome clean (45 files)** — after converging `origin/main` (PR#10) into this branch.
+- **Last completed (2026-05-29 session 2):** **CONVERGENCE MERGE `5a02ceb`.** `origin/main` advanced 7 commits via PR#10 (D3/D6 production wiring, ship-gate, fail-closed inventory) after the v3.1 handoff, leaving PR #11 `CONFLICTING`. Merged `origin/main` in (`-X ours` for the 9 discover.mjs + 2 bootstrap.mjs conflicts — every one was the v3.1 superset of main's earlier independent fix), KEPT main's reviewed fail-closed inventory + removed a silent auto-merge duplicate-`inventory` hazard, and reconciled 3 test divergences (BUG E `build_not_install`→`servesObjective:false` canonical; seed `config/stack-inventory.json` in 2 R1 tests). 229→233 green, no production fix dropped. (Prior v3.1 program complete: 20 commits `ef02772..4ca12a7`, GPT-5.5 QC PASS.)
+- **Next slice:** F2 — `normalizeCandidate` (see "Deferred #1: LIVE multi-source fan-out" section below). F1 done `[pending-commit]` (241 green).
 - **Resume protocol:** read this header → `git -C <repo> log --oneline -5` → `npm test` (confirm green) → continue from first unchecked slice → commit each verified slice + update this header in the same commit.
+
+## Deferred #1 — LIVE multi-source discovery fan-out (gap G1) — un-defers R5
+
+> **Ground:** gpt-researcher `MCPToolSelector` = two-tier routing gate with a DETERMINISTIC FLOOR (LLM relevance-rank → falls through to a pattern-scored top-k, guaranteed non-empty) [patterns/assafelovic/gpt-researcher/sota-distill.md]; RAG-MCP / MCP-Zero = tool discovery is semantic retrieval+rank BEFORE the LLM sees them [convergence doc §Cross-source-patterns]. **Runtime split (architecture-runtime-model):** `.mjs` = pure testable scaffold; the live MCP calls (exa/tavily/jina/brave/semantic-scholar/github) are the `SKILL.md` WORKFLOW's job. Engine stays authoritative; soft-gate sacred.
+
+- [x] **F1** — `scripts/lib/source-registry.mjs`: `SOURCE_REGISTRY` (descriptors: name, family, kind, categories, topicHints) + `selectSources(topic, category, {maxSources})` — deterministic relevance-ranked selection with a guaranteed `github` floor (the gpt-researcher fallback). **8 tests; 241 green; Biome clean.** Floor-preservation-under-cap was RED-verified before adding the swap.
+- [ ] **F2** — `normalizeCandidate(result, source)` + `extractRepoIdentity(result)`: uniform `{nameWithOwner, sources:[source], hint}` shape (extract the GitHub repo a web/academic result references; null if none) → feeds `phase2Convergence`. TDD.
+- [ ] **F3** — extend `canonicalSourceFamily` (discover.mjs) to fold engine variants (`exa-*`/`tavily-*`/`jina-*`/`brave*`/`semantic-scholar`) → one family each (absorbs main's deferred `FAMILY_CANON` intent). TDD.
+- [ ] **F4** — wire into `discover()` fan-out (selectSources orders PHASE1_SOURCES; honest sourceStatus) + `SKILL.md` phase-1 workflow prose (selected sources → MCP calls → normalizeCandidate → phase2Convergence → engine → decision-envelope). Move live-fan-out from R13 `KNOWN_BACKLOG` to a wired producer. TDD .mjs.
+- [ ] **F5 (conditional)** — R5 Top-N matrix pure-projection renderer, IF the fan-out makes ≥2 scored same-category candidates per scan routine (ADR-R5 revive precondition). TDD.
+- [ ] **QC** — GPT-5.5 @ xhigh convergence QC (codex exec, confirm model from telemetry) → append `docs/research/qc-manifest-*`. Then push → PR #11.
 
 ## Sequencing (GPT-5.5-validated dependency order)
 
