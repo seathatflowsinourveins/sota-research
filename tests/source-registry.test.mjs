@@ -156,4 +156,12 @@ describe("normalizeCandidate (F2 — uniform shape for phase2Convergence, family
     expect(merged[0].source_list.slice().sort()).toEqual(["exa", "github-search"]);
     expect(merged[0].source_trust.family_count).toBe(2); // exa + github = 2 independent families
   });
+
+  it("never throws on null/undefined input — returns null so the workflow drops it (GPT-5.5 QC MAJOR)", () => {
+    // The `= {}` default only covers undefined; a null MCP result must not crash the fan-out.
+    expect(extractRepoIdentity(null)).toBeNull();
+    expect(extractRepoIdentity(undefined)).toBeNull();
+    expect(normalizeCandidate(null, "exa")).toBeNull();
+    expect(normalizeCandidate(undefined, "exa")).toBeNull();
+  });
 });

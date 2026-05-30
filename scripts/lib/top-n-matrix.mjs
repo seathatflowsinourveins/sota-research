@@ -37,7 +37,8 @@ function cell(v) {
  * Render a comparative Top-N matrix for ONE category. Returns a markdown table string, or null when
  * fewer than 2 scored candidates of that category exist (the ADR-R5 mostly-empty-rows guard).
  *
- * @param {object[]} candidates - scored phase4 candidates (or decision-shaped records)
+ * @param {object[]} candidates - scored phase4 candidates (the discover() `candidates` shape:
+ *   nameWithOwner, score.dimensions, final_score, action, adoptionPathway, source_trust, etc.)
  * @param {{category:string, topN?:number}} opts
  * @returns {string|null}
  */

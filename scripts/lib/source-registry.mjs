@@ -231,17 +231,20 @@ const GITHUB_RESERVED_OWNERS = new Set([
  * @param {object} result - a raw source result (web/academic/code)
  * @returns {string|null} "owner/repo" (original case) or null
  */
-export function extractRepoIdentity(result = {}) {
+export function extractRepoIdentity(result) {
+  // Coalesce null AND undefined (a `= {}` param default only covers undefined; a null MCP result
+  // must be dropped as unscorable, never crash the fan-out — GPT-5.5 QC MAJOR).
+  const r = result ?? {};
   const haystack = [
-    result.url,
-    result.href,
-    result.link,
-    result.title,
-    result.text,
-    result.snippet,
-    result.description,
-    result.abstract,
-    result.content,
+    r.url,
+    r.href,
+    r.link,
+    r.title,
+    r.text,
+    r.snippet,
+    r.description,
+    r.abstract,
+    r.content,
   ]
     .filter((v) => typeof v === "string")
     .join(" ");
@@ -275,16 +278,17 @@ export function extractRepoIdentity(result = {}) {
  * @param {string} source - the source label (becomes `sources:[source]`)
  * @returns {{nameWithOwner:string, sources:string[], hint:object}|null}
  */
-export function normalizeCandidate(result = {}, source = "unknown") {
-  const nameWithOwner = result.nameWithOwner || extractRepoIdentity(result);
+export function normalizeCandidate(result, source = "unknown") {
+  const r = result ?? {}; // null-safe: a null MCP result is dropped (returns null), never a crash
+  const nameWithOwner = r.nameWithOwner || extractRepoIdentity(r);
   if (!nameWithOwner) return null;
 
   // Preserve a structured hint when the source already supplies one (github-search:
   // stars/topics/pushedAt); otherwise build a uniform hint from whatever fields exist.
-  const hint = result.hint || {
-    title: result.title ?? null,
-    url: result.url ?? result.href ?? result.link ?? null,
-    description: result.description ?? result.text ?? result.snippet ?? result.abstract ?? null,
+  const hint = r.hint || {
+    title: r.title ?? null,
+    url: r.url ?? r.href ?? r.link ?? null,
+    description: r.description ?? r.text ?? r.snippet ?? r.abstract ?? null,
     source,
   };
 

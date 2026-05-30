@@ -606,6 +606,19 @@ describe("discover.mjs — R9 canonicalize forks/mirrors before family-counting 
         countIndependentFamilies(["github-search", "exa-web", "tavily-basic", "jina-arxiv"]),
       ).toBe(4);
     });
+
+    it("folds UNDERSCORE tool-variants too (JS \\b treats _ as a word char — GPT-5.5 QC MAJOR)", () => {
+      // MCP tool names are underscore-heavy; `^exa\b` matched exa-web but NOT exa_web (no boundary
+      // between a word char and `_`), letting one engine fake multi-source convergence.
+      expect(canonicalSourceFamily("exa_web")).toBe("exa");
+      expect(canonicalSourceFamily("brave_web_search")).toBe("brave");
+      expect(canonicalSourceFamily("semantic_scholar")).toBe("semantic-scholar");
+      expect(canonicalSourceFamily("s2_search")).toBe("semantic-scholar");
+      // one engine via mixed _/- tool labels still collapses to ONE independent family
+      expect(countIndependentFamilies(["exa_web", "exa_code", "exa-deep"])).toBe(1);
+      // and the no-false-fold guard still holds for an underscore-adjacent unrelated name
+      expect(canonicalSourceFamily("example")).toBe("example");
+    });
   });
 
   describe("phase2Convergence — per-source Set-union merge (S1 correctness)", () => {
