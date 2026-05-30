@@ -80,6 +80,37 @@ describe("score.mjs", () => {
     vi.clearAllMocks();
   });
 
+  describe("regression — pathway exposure (BUG B) + D6 count semantics (BUG D)", () => {
+    it("exposes adoption_pathway from the pathway INPUT, not the numeric D3", async () => {
+      const result = await scoreRepo({
+        owner: "test",
+        repo: "repo",
+        category: "mcp-server",
+        dims: { D3pathway: { pathway: "mcp", evidence: { hasManifest: true, hasDocs: true } } },
+      });
+      // Must be the pathway string so the D3 veto can fire in the live pipeline.
+      expect(result.adoption_pathway).toBe("mcp");
+    });
+
+    it("returns undefined adoption_pathway when no pathway was assessed (tri-state: unassessed skips the veto)", async () => {
+      const result = await scoreRepo({ owner: "test", repo: "repo", category: "mcp-server" });
+      // Tri-state: UNASSESSED (no D3pathway input) => undefined so the pathway veto SKIPS;
+      // assessed-without-pathway => null => veto fires. (Set by score.mjs computeDimensions.)
+      expect(result.adoption_pathway).toBeUndefined();
+    });
+
+    it("D6 publisher-risk fires on the 0/1 single-publisher count, not only boolean true", async () => {
+      const result = await scoreRepo({
+        owner: "test",
+        repo: "repo",
+        category: "code-library",
+        dims: { D6: 9, publisherRiskSinglePublisher: 1, publisherRiskWeeklyDownloads: 5_000_000 },
+      });
+      // count=1 + 5M downloads => RED publisher-risk => D6 capped below the supplied 9.
+      expect(result.dimensions.D6).toBeLessThan(9);
+    });
+  });
+
   it("should throw if owner or repo is missing", async () => {
     await expect(scoreRepo({})).rejects.toThrow("owner and repo required");
     await expect(scoreRepo({ owner: "test" })).rejects.toThrow("owner and repo required");

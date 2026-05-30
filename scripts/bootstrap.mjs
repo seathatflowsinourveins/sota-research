@@ -183,12 +183,17 @@ export async function bootstrap({
     }
   });
 
-  // R3: load the stack inventory once for gap-fit gating (conservative {} fallback if absent).
-  let inventory = {};
+  // Load the stack inventory once for gap-fit gating. Fail CLOSED — config/stack-inventory.json
+  // is tracked, so a load failure is real misconfig; an empty {} fallback would silently disable
+  // objective gating (everything passes as servesObjective). Guards the scan precondition, not a
+  // verdict (soft-gate intact). R3: feeds gap-fit (D11) → objectiveRelevanceGate via decideCandidate.
+  let inventory;
   try {
     inventory = loadStackInventory(baseDir);
-  } catch {
-    inventory = {};
+  } catch (err) {
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
   }
 
   // Decide every candidate ONCE via the single engine — reused by the markdown table AND the

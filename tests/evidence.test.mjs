@@ -158,7 +158,8 @@ describe("evidence.mjs — validateJudgeEvidence (R7 probe_status — confidence
 });
 
 describe("evidence.mjs — evidenceCoverageGate", () => {
-  it("passes when coverage >= threshold (default 0.7)", () => {
+  // BUG F: Fix mislabeled test. Test name said "passes when ..." but asserted failure.
+  it("fails when coverage < threshold (default 0.7)", () => {
     const dims = { D1: 5, D2: 6, D3: 7, D4: null, D5: null, D6: null, D7: null, D8: null };
     const { passedGate, coverage } = evidenceCoverageGate(dims);
     // 3 evidenced / 8 total = 0.375 < 0.7, so gate fails

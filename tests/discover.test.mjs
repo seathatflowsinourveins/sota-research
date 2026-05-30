@@ -333,6 +333,13 @@ describe("discover.mjs", () => {
         },
       });
       const dir = join(tmpdir(), `sota-discover-${process.pid}-${Math.floor(performance.now())}`);
+      // Fail-closed gap-fit requires config/stack-inventory.json under baseDir (CodeRabbit major);
+      // seed a minimal valid one so the scan runs in the temp baseDir (mirrors bootstrap.test).
+      await fsp.mkdir(join(dir, "config"), { recursive: true });
+      await fsp.writeFile(
+        join(dir, "config", "stack-inventory.json"),
+        JSON.stringify({ version: "test", layers: {}, gaps: [], strategic_priorities: [] }),
+      );
       const result = await discover({
         topic: "mcp-server",
         category: "mcp-server",
@@ -368,6 +375,13 @@ describe("discover.mjs", () => {
         tmpdir(),
         `sota-discover-nopersist-${process.pid}-${Math.floor(performance.now())}`,
       );
+      // Seed the fail-closed gap-fit prerequisite (config/) but NOT inventory/ — the test asserts
+      // persist:false creates no inventory/ side-effects.
+      await fsp.mkdir(join(dir, "config"), { recursive: true });
+      await fsp.writeFile(
+        join(dir, "config", "stack-inventory.json"),
+        JSON.stringify({ version: "test", layers: {}, gaps: [], strategic_priorities: [] }),
+      );
       const result = await discover({ topic: "mcp-server", limit: 10, baseDir: dir });
 
       expect(result.decisionsFile).toBeNull();
@@ -378,6 +392,8 @@ describe("discover.mjs", () => {
         inventoryExists = false;
       }
       expect(inventoryExists).toBe(false);
+
+      await fsp.rm(dir, { recursive: true, force: true });
     });
   });
 

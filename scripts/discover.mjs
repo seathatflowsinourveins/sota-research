@@ -490,16 +490,20 @@ async function phase4Score(
 ) {
   const batchSize = 5; // Limit concurrency to respect API rate limits
 
-  // R3: load the stack inventory ONCE so gap-fit (D11) feeds objectiveRelevanceGate live.
-  // Missing/unreadable inventory → {} → gap-fit's conservative low-marginal-value fallback.
-  let inventory = {};
+  const scoredCandidates = [];
+
+  // Load the stack inventory ONCE. Fail CLOSED — config/stack-inventory.json is tracked, so a
+  // load failure is real misconfig; an empty {} fallback would silently disable objective gating
+  // in a live scan (CodeRabbit major / ship-gate). R3: this feeds gap-fit (D11) →
+  // objectiveRelevanceGate. Guards the scan precondition, NOT a candidate verdict (soft-gate intact).
+  let inventory;
   try {
     inventory = loadStackInventory(baseDir);
-  } catch {
-    inventory = {};
+  } catch (err) {
+    throw new Error(
+      `Cannot run scan: failed to load config/stack-inventory.json (required for gap-fit objective gating): ${err.message}`,
+    );
   }
-
-  const scoredCandidates = [];
 
   // Process candidates in concurrent batches
   for (let i = 0; i < candidates.length; i += batchSize) {
@@ -525,8 +529,7 @@ async function phase4Score(
 
           // D10 provenance/trust overlay — computed from the GraphQL evidence scoreRepo
           // already fetched (stars/forks/commits), so the astroturf/fake-star gate fires in
-          // the LIVE pipeline, not only in unit tests (Codex 2026-05-28). gap-fit (D11) +
-          // adoption-pathway (D3) need candidate-level judge evidence → still backlog.
+          // the LIVE pipeline, not only in unit tests (Codex 2026-05-28).
           const provenance = assessProvenance({
             stars: scoreResult.evidence?.stars,
             forks: scoreResult.evidence?.forks,

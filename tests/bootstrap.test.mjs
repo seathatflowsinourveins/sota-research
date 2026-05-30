@@ -46,6 +46,13 @@ describe("bootstrap.mjs", () => {
     tempDir = join(tmpdir(), `sota-bootstrap-test-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(join(tempDir, "inventory"), { recursive: true });
+    // config/stack-inventory.json is REQUIRED — gap-fit now fails CLOSED if it is absent
+    // (CodeRabbit major). Provide a minimal valid one so the scan runs in the temp baseDir.
+    await fs.mkdir(join(tempDir, "config"), { recursive: true });
+    await fs.writeFile(
+      join(tempDir, "config", "stack-inventory.json"),
+      JSON.stringify({ version: "test", layers: {}, gaps: [], strategic_priorities: [] }),
+    );
     // Set default mock response for discover (B.3 search) and score (B.2 dimension) queries
     setMockGraphQLResponse({
       data: {

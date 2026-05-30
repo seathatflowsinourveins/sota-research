@@ -395,12 +395,12 @@ describe("decision.mjs — evidence-coverage gate in routeDecision", () => {
       safety: { verified: true },
       dims: { D1: 7, D2: 6, D3: 7, D4: 8, D5: null, D6: 6, D7: 8, D8: null },
     });
-    // 6/8 dims evidenced (75% >= 70%), gate passes, base tier = INSTALL-LITE (80-89 for mcp, score=72 maps to... wait, score is 72, so baseTier is STUDY for non-mcp-install cats)
-    // Actually mcp-server at 72 => STUDY base tier
-    // 6/8 = 75% >= 70%, so gate passes
-    expect(
-      r.trace.some((t) => t.includes("evidence-coverage-gate")) ||
-        !r.trace.some((t) => t.includes("evidence-coverage-gate")),
-    ).toBe(true);
+    // 6/8 dims evidenced (75% >= 70%), gate passes; score=72 for mcp-server → base tier STUDY
+    // Evidence is sufficient, so the gate does NOT demote; action depends on base tier routing
+    // BUG F: Fixed tautological test (old: "A || !A always true"). Now correctly asserts
+    // that the evidence gate passes (no evidence-coverage demotion in trace) and the
+    // score+category route to STUDY (not artificially capped by sparse evidence).
+    expect(r.action).toBe("STUDY");
+    expect(r.trace.some((t) => t.includes("evidence-coverage-gate"))).toBe(false);
   });
 });

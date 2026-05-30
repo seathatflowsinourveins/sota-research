@@ -168,7 +168,10 @@ function assessPublisherRisk({ singlePublisher = false, weeklyDownloads = 0, con
     ...config,
   };
 
-  const publisherCount = singlePublisher ? 1 : 0;
+  // BUG D: Normalize singlePublisher — can be boolean true OR numeric 1 (single-publisher count).
+  // If either form, publisherCount = 1; otherwise 0. This ensures the rubric's 0/1 count semantics
+  // and the evidence schema's boolean forms both trigger the risk.
+  const publisherCount = singlePublisher === true || singlePublisher === 1 ? 1 : 0;
   const publisherRisk = publisherCount * Math.log10((weeklyDownloads || 0) + 1);
 
   let flag = "GREEN";
@@ -236,7 +239,7 @@ function computeDimensions(rawData, providedDims = {}) {
   // D6 (adoption) publisher-risk assessment: single-publisher + high downloads cap D6.
   // The agent supplies D6 evidence; we apply the behavioral overlay cap.
   const publisherRiskAssessment = assessPublisherRisk({
-    singlePublisher: providedDims.publisherRiskSinglePublisher === true,
+    singlePublisher: providedDims.publisherRiskSinglePublisher,
     weeklyDownloads: Number(providedDims.publisherRiskWeeklyDownloads) || 0,
   });
   if (publisherRiskAssessment.cap != null && dims.D6 != null) {
@@ -244,7 +247,15 @@ function computeDimensions(rawData, providedDims = {}) {
   }
 
   const D9 = dimensionValue(providedDims.D9);
-  return { dims, D9, publisherRiskAssessment };
+  // Expose the assessed adoption PATHWAY (string) so the D3 pathway-veto can fire in the
+  // live pipeline. Source it from the pathway INPUT, never dims.D3 (a number) — reading
+  // `dims.D3.pathway` was always undefined, leaving the veto inert in production.
+  // Tri-state (Codex ship-gate 2026-05-28): UNASSESSED (no D3pathway) → undefined so the
+  // pathway veto SKIPS downstream; assessed-with-pathway → the string; assessed-without → null → veto.
+  const adoptionPathway = providedDims.D3pathway
+    ? (providedDims.D3pathway.pathway ?? null)
+    : undefined;
+  return { dims, D9, publisherRiskAssessment, adoptionPathway };
 }
 
 /**
@@ -277,7 +288,10 @@ export async function scoreRepo({
   const rawData = await githubGraphQLDimensions(owner, repo);
 
   // Compute dimensions (D1/D2 from GraphQL; D3–D8 from agent-supplied evidence)
-  const { dims, D9, publisherRiskAssessment } = computeDimensions(rawData, providedDims);
+  const { dims, D9, publisherRiskAssessment, adoptionPathway } = computeDimensions(
+    rawData,
+    providedDims,
+  );
 
   // Rubric score over EVIDENCED dimensions only (missing dims contribute 0).
   // `coverage` reports completeness so consumers can refuse to trust a partial
@@ -298,6 +312,7 @@ export async function scoreRepo({
     coverage: Number(coverage.toFixed(3)),
     partial: coverage < 0.999,
     dimensions: dims,
+    adoption_pathway: adoptionPathway,
     niche_overlay_D9: D9,
     publisher_risk_assessment: publisherRiskAssessment,
     evidence: {

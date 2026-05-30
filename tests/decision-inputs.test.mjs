@@ -74,7 +74,13 @@ describe("deriveDecisionInputs (R3 — feed gap-fit + pathway into the decision 
       inventory,
       { category: "code-library" },
     );
-    expect(out.servesObjective).toBe(true);
+    // The candidate's topics/description map to keywords that match the named gap...
     expect(out.gapFit.gapFilled).toBe("eval-harness");
+    // ...but `eval-harness` is build_not_install, so the objective-relevance gate caps INSTALL→STUDY:
+    // a matched build-not-install gap means "study the pattern, do not install an external"
+    // (servesObjective:false, marginalValue:medium — BUG E / Codex 2026-05-28). Keyword matching
+    // still fires, which is what this test verifies.
+    expect(out.servesObjective).toBe(false);
+    expect(out.marginalValue).toBe("medium");
   });
 });

@@ -382,7 +382,7 @@ This weights the rubric-derived score at 60% and Codex at 40%, with convergence 
 - **Inline** as `convergence_factor` multiplier on the rubric half (rewards multi-source via the gradient)
 - **Post-blend cap** preventing high single-source scores from sneaking past the trust gate via a strong Codex verdict alone
 
-Without the post-blend cap, `rubric=100, codex=100, src=1` would yield `0.6×(100×0.80) + 0.4×100 = 88` — which would violate the "single-source caps at 80" rule. With the cap, that combo correctly returns 80, demoting the candidate to STUDY tier where the convergence weakness can be flagged.
+Without the post-blend cap, `rubric=100, codex=100, src=1` would yield `0.6×(100×0.85) + 0.4×100 = 91` — which would violate the "single-source caps at 80" rule. With the cap, that combo correctly returns 80, demoting the candidate to STUDY tier where the convergence weakness can be flagged.
 
 ### Conflict Resolution
 
@@ -410,8 +410,10 @@ final action is produced by an ordered pipeline implemented in `scripts/lib/deci
 **Pipeline order** (each step strictly after the previous):
 
 ```
-hard SAFETY veto → blended score (family-score-capped) → base tier
-  → override FLOOR (raise, capped at STUDY) → convergence ACTION cap (lower)
+hard SAFETY veto → provenance FRAUD veto (confirmed fraud/malware/impersonation → REJECT)
+  → blended score (family-score-capped) → base tier → override FLOOR (raise, capped at STUDY)
+  → evidence-COVERAGE gate (sparse evidence → cap STUDY) → D3 pathway VETO (assessed-but-no-pathway → cap STUDY)
+  → convergence ACTION cap (lower) → provenance SUSPECT cap (astroturf signals → cap STUDY + human review)
   → late security demotion (lower) → claim-freshness gate → objective-relevance gate
   → FAIL-CLOSED safety (no INSTALL tier without verified safety)
 ```
@@ -454,8 +456,8 @@ install).
 
 **Example:** A candidate scores 85 on rubric + 82 on Codex, but was only found by GitHub topic search (1 source):
 ```
-convergence_factor = 0.80
-final = 0.6 × (85 × 0.80) + 0.4 × 82 = 0.6 × 68 + 0.4 × 82 = 40.8 + 32.8 = 73.6
+convergence_factor = 0.85   (1 independent family: 0.80 + 0.05×1)
+final = 0.6 × (85 × 0.85) + 0.4 × 82 = 0.6 × 72.25 + 0.4 × 82 = 43.35 + 32.8 = 76.15
 Action: STUDY (not 80-89 tier)
 ```
 
